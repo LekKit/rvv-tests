@@ -1,0 +1,76 @@
+/* Auto-generated test for vfwmacc.vf
+ * Widening FP FMA vfwmacc.vf
+ *
+ * Exit code 0 = PASS
+ * Exit code N = check N failed:
+ *     1 = vfwmacc.vf basic: result
+ *     2 = vfwmacc.vf accum: result
+ */
+#include "riscv_test.h"
+#include "test_macros.h"
+
+
+    li t0, 4
+    vsetvli t0, t0, e64, m2, tu, mu
+    la t1, tc1_vd
+    vle64.v v8, (t1)
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc1_s2
+    vle32.v v16, (t1)
+    la t1, tc1_fsc
+    flw fa0, 0(t1)
+    SAVE_CSRS
+    vfwmacc.vf v8, fa0, v16
+    SET_TEST_NUM 1
+    vsetvli t0, t0, e64, m2, tu, mu
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc1_exp, 32
+    CHECK_VSTART_ZERO
+    CHECK_FCSR_UNCHANGED
+
+    li t0, 4
+    vsetvli t0, t0, e64, m2, tu, mu
+    la t1, tc2_vd
+    vle64.v v8, (t1)
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc2_s2
+    vle32.v v16, (t1)
+    la t1, tc2_fsc
+    flw fa0, 0(t1)
+    SAVE_CSRS
+    vfwmacc.vf v8, fa0, v16
+    SET_TEST_NUM 2
+    vsetvli t0, t0, e64, m2, tu, mu
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc2_exp, 32
+    CHECK_VSTART_ZERO
+    CHECK_FCSR_UNCHANGED
+
+    PASS_TEST
+
+.data
+.align 3
+tc1_vd:
+    .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
+tc1_s2:
+    .word 0x41200000, 0x41a00000, 0x41f00000, 0x42200000
+tc1_fsc:
+    .word 0x40000000
+tc1_exp:
+    .dword 0x4034000000000000, 0x4044000000000000, 0x404e000000000000, 0x4054000000000000
+.align 3
+tc2_vd:
+    .dword 0x4059000000000000, 0x4069000000000000, 0x4072c00000000000, 0x4079000000000000
+tc2_s2:
+    .word 0x3f800000, 0x40000000, 0x40400000, 0x40800000
+tc2_fsc:
+    .word 0x3f800000
+tc2_exp:
+    .dword 0x4059400000000000, 0x4069400000000000, 0x4072f00000000000, 0x4079400000000000
+
+.align 4
+result_buf:  .space 256
+witness_buf: .space 256
+
