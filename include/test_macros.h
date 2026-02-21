@@ -8,6 +8,76 @@
 #define TEST_MACROS_H
 
 /* ============================================================
+ * Linux syscall wrappers (RV64)
+ *
+ * RISC-V Linux syscall convention:
+ *   a7 = syscall number, a0-a5 = arguments, a0 = return value
+ *   Clobbers: a0-a5, a7 (depending on macro)
+ * ============================================================ */
+
+/* __NR_exit: terminate process.  Does not return.
+ * Clobbers: a0, a7
+ */
+.macro SYS_EXIT code
+    li a0, \code
+    li a7, 93
+    ecall
+.endm
+
+/* __NR_mmap: map pages.  Result in a0 (address, or negative on error).
+ * Clobbers: a0-a5, a7
+ */
+.macro SYS_MMAP addr, len, prot, flags, fd, offset
+    li a0, \addr
+    li a1, \len
+    li a2, \prot
+    li a3, \flags
+    li a4, \fd
+    li a5, \offset
+    li a7, 222
+    ecall
+.endm
+
+/* __NR_munmap: unmap pages.  Result in a0 (0 on success).
+ * Clobbers: a0, a1, a7
+ */
+.macro SYS_MUNMAP addr, len
+    mv a0, \addr
+    li a1, \len
+    li a7, 215
+    ecall
+.endm
+
+/* __NR_clone: fork process (simple fork via SIGCHLD).
+ * Result in a0: child PID in parent, 0 in child, negative on error.
+ * Clobbers: a0-a4, a7
+ */
+.macro SYS_CLONE flags=17
+    li a0, \flags
+    li a1, 0
+    li a2, 0
+    li a3, 0
+    li a4, 0
+    li a7, 220
+    ecall
+.endm
+
+/* __NR_wait4: wait for child process.
+ * pid: register holding child PID (or -1 for any)
+ * wstatus_ptr: register holding pointer to wstatus word
+ * Result in a0: child PID on success, negative on error.
+ * Clobbers: a0-a3, a7
+ */
+.macro SYS_WAIT4 pid, wstatus_ptr
+    mv a0, \pid
+    mv a1, \wstatus_ptr
+    mv a2, zero
+    mv a3, zero
+    li a7, 260
+    ecall
+.endm
+
+/* ============================================================
  * Test case management
  * ============================================================ */
 
@@ -25,16 +95,12 @@
 
 /* Exit with explicit failure code */
 .macro FAIL_CODE code
-    li a0, \code
-    li a7, 93
-    ecall
+    SYS_EXIT \code
 .endm
 
 /* Exit success */
 .macro PASS_TEST
-    li a0, 0
-    li a7, 93
-    ecall
+    SYS_EXIT 0
 .endm
 
 /* ============================================================

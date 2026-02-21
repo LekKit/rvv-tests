@@ -27,7 +27,7 @@ rvv-tests/
 ├── Makefile                       # Cross-compilation build system
 ├── include/
 │   ├── riscv_test.h               # _start entry, _mem_compare, stack setup
-│   └── test_macros.h              # CHECK_MEM, SAVE_CSRS, FAIL_IF_*, witness macros
+│   └── test_macros.h              # CHECK_MEM, SAVE_CSRS, FAIL_IF_*, witness macros, SYS_* syscall wrappers
 ├── scripts/
 │   └── run_tests.sh               # Test runner (local + SSH modes)
 ├── generator/                     # Python test generator framework
@@ -57,8 +57,8 @@ rvv-tests/
 │       ├── reduction.py           # Integer + FP reductions
 │       ├── mask.py                # Mask logical + population/find/set/iota/vid
 │       ├── permutation.py         # Slides, gathers, compress, moves, merges
-│       └── edge_cases.py          # vl=0, tail undisturbed, LMUL>1, fault-only-first
-├── tests/                         # Generated .S files (642 total) — fully regenerated on each run
+│       └── edge_cases.py          # vl=0, tail undisturbed, LMUL>1, fault-only-first, vill trap, fractional LMUL, tail/mask agnostic, stride, scatter, vxsat sticky, narrowing/widening
+├── tests/                         # Generated .S files (653 total) — fully regenerated on each run
 │   ├── MANIFEST                   # List of all test file paths
 │   ├── config/                    # vsetvli (covers vsetvli/vsetivli/vsetvl)
 │   ├── load/                      # vle*, vlse*, vlm, vle*ff, vl*re*
@@ -89,7 +89,7 @@ rvv-tests/
 │   ├── reduction/                 # vredsum..vfwredusum
 │   ├── mask/                      # vmand..vid
 │   ├── permutation/               # vslide..vmv*r
-│   └── edge_cases/                # vl=0, tail, LMUL>1, vle32ff fault
+│   └── edge_cases/                # vl=0, tail, LMUL>1, vle32ff fault, vill trap, fractional LMUL, tail/mask agnostic, stride, scatter, vxsat sticky, narrowing/widening
 └── fuzzer/                        # Planned AFL++ fuzzing (not yet implemented)
 ```
 
@@ -99,7 +99,7 @@ rvv-tests/
 
 Each `.S` file is a **standalone static binary** — no libc, no dynamic linking. The entry point `_start` (from `riscv_test.h`) sets up a small stack and jumps to `_test_start`. Tests exit via Linux syscall 93: exit code 0 means all checks passed, any nonzero code identifies the first check that failed. Check meanings are documented in comments at the top of each generated `.S` file.
 
-Edge case tests also use Linux syscalls 222 (mmap) and 215 (munmap) to create page-boundary conditions for fault-only-first load testing.
+Edge case tests also use Linux syscalls 222 (mmap) and 215 (munmap) to create page-boundary conditions for fault-only-first load testing, and syscall 220 (clone) + 260 (wait4) to fork child processes for illegal-instruction trap verification.
 
 ### Register allocation convention
 
@@ -144,6 +144,10 @@ Three macro variants handle different instruction classes:
 ### Platform limitations
 
 **Writing vstart from userspace causes SIGILL** on Linux targets where the kernel does not support trap-and-emulate for vstart writes. This is legal per the RVV spec: hardware that never interrupts vector instructions mid-execution need not support arbitrary vstart values, and the kernel may trap writes to vstart as a high-cost operation. The `vstart_nonzero` test is therefore commented out (not deleted) in `edge_cases.py`; it is intended for a future bare-metal port.
+
+**Userspace SIGILL handler PC-advance is unreliable**: The standard approach of using `rt_sigaction` with `SA_SIGINFO` to catch SIGILL and advance the saved PC (at ucontext offset 168 on RV64) does not work reliably across all platforms/emulators. The `vill_trap` test instead uses `clone`/`wait4` to fork a child process that executes the faulting instruction; the parent checks the child was killed by SIGILL (WTERMSIG == 4).
+
+**Vector state (vtype/vl) is not preserved across fork**: The Linux kernel's lazy vector context management may not preserve `vtype` and `vl` CSRs across `clone()`/`fork()`. Child processes must set their own vector configuration rather than relying on inheriting the parent's vtype. Vector register contents may also not survive `clone`+`wait4` syscall sequences in the parent.
 
 ### Code generation architecture
 

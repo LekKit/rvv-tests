@@ -39,14 +39,7 @@
     /* Sub-test B: Boundary fault -- mmap + munmap trick */
     /* ============================================================ */
     SET_TEST_NUM 3
-    li a0, 0
-    li a1, 8192
-    li a2, 3
-    li a3, 34
-    li a4, -1
-    li a5, 0
-    li a7, 222
-    ecall
+    SYS_MMAP 0, 8192, 3, 34, -1, 0
     bltz a0, 90100f
     j 90101f
 90100:
@@ -55,10 +48,8 @@
     mv s6, a0
     SET_TEST_NUM 4
     li t0, 4096
-    add a0, s6, t0
-    li a1, 4096
-    li a7, 215
-    ecall
+    add s7, s6, t0
+    SYS_MUNMAP s7, 4096
     FAIL_IF_NZ a0
     li t0, 4084
     add s7, s6, t0
@@ -122,10 +113,7 @@
     FAIL_IF_NZ a0
 90107:
     SET_TEST_NUM 11
-    mv a0, s6
-    li a1, 4096
-    li a7, 215
-    ecall
+    SYS_MUNMAP s6, 4096
     FAIL_IF_NZ a0
 
     PASS_TEST

@@ -6,7 +6,7 @@ These tests are 100% vibecoded.
 
 ## Overview
 
-642 standalone assembly tests covering all RVV 1.0 instruction mnemonics. Each test is a static binary (no libc) that exits with code 0 on success or a nonzero check number identifying the first failed verification.
+653 standalone assembly tests covering all RVV 1.0 instruction mnemonics. Each test is a static binary (no libc) that exits with code 0 on success or a nonzero check number identifying the first failed verification.
 
 Tests verify:
 - Correct instruction output for known inputs across all supported SEW widths
@@ -37,7 +37,7 @@ Tests verify:
 | Reductions | 16 | vredsum/vredmax/vfredosum/vfwredosum/... |
 | Mask operations | 15 | vmand*/vcpop/vfirst/vid/viota/vmsbf/vmsif/vmsof |
 | Permutation | 29 | vslide*/vrgather*/vcompress/vmv*/vfmv*/vmv*r |
-| Edge cases | 13 | vl=0 no-op, tail undisturbed (full-VLMAX), LMUL>1 boundary, vle32ff fault |
+| Edge cases | 24 | vl=0 no-op, tail undisturbed (full-VLMAX), LMUL>1 boundary, vle32ff fault, vill trap, fractional LMUL, tail/mask agnostic, stride zero/negative, ordered scatter, vxsat sticky, narrowing tail, widening LMUL>1, fflags |
 
 ## Building and running
 
@@ -76,6 +76,7 @@ A nonzero exit code from any test binary identifies which check failed. Each `.S
 - **Generated**: A Python code generator produces all `.S` files to avoid duplication and ensure consistency
 - **Side-effect checking**: After each instruction under test, CSRs and witness registers are verified
 - **Full-VLMAX tail checking**: Edge case tests fill registers at VLMAX, dump with `vs1r.v`/`vs2r.v`, and verify tail bytes dynamically using `csrr vlenb`
+- **vill/illegal-instruction testing**: Uses `clone`/`wait4` to fork a child process that executes a vector instruction with vill set, verifying the kernel kills it with SIGILL
 
 ## License
 

@@ -1,9 +1,8 @@
 /* riscv_test.h - Test framework for RVV 1.0 instruction tests
  *
  * Each .S test file includes this header. It provides:
- *   - _start entry point (jumps over utility code)
+ *   - _start entry point (sets up stack, jumps to _test_start)
  *   - _mem_compare utility function
- *   - .Lfail / .Lpass exit handlers
  *
  * Convention:
  *   s11 = current test case number (set before each check)
@@ -61,7 +60,7 @@ _mem_compare:
 .align 2
 _test_start:
 
-/* ---- Stack space (small, 256 bytes) ---- */
+/* ---- Stack space (4096 bytes) ---- */
 .pushsection .bss
 .align 4
 _stack_bottom:
