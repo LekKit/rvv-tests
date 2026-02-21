@@ -30,7 +30,7 @@
     la t1, result_buf
     vse8.v v8, (t1)
     CHECK_MEM result_buf, tc1_exp, 4
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 2: vmacc.vx SEW=8 accum */
     li t0, 4
@@ -46,7 +46,7 @@
     la t1, result_buf
     vse8.v v8, (t1)
     CHECK_MEM result_buf, tc2_exp, 4
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 3: vmacc.vx SEW=16 basic */
     li t0, 4
@@ -62,7 +62,7 @@
     la t1, result_buf
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc3_exp, 8
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 4: vmacc.vx SEW=16 accum */
     li t0, 4
@@ -78,7 +78,7 @@
     la t1, result_buf
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc4_exp, 8
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 5: vmacc.vx SEW=32 basic */
     li t0, 4
@@ -94,7 +94,7 @@
     la t1, result_buf
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc5_exp, 16
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 6: vmacc.vx SEW=32 accum */
     li t0, 4
@@ -110,7 +110,7 @@
     la t1, result_buf
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc6_exp, 16
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 7: vmacc.vx SEW=64 basic */
     li t0, 4
@@ -126,7 +126,7 @@
     la t1, result_buf
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc7_exp, 32
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 8: vmacc.vx SEW=64 accum */
     li t0, 4
@@ -142,7 +142,7 @@
     la t1, result_buf
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc8_exp, 32
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     PASS_TEST
 

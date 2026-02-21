@@ -39,7 +39,7 @@
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc1_exp, 8
     SET_TEST_NUM 2
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 3-4: vsext.vf2 e8→e16 max */
     li t0, 4
@@ -54,7 +54,7 @@
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc3_exp, 8
     SET_TEST_NUM 4
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 5-6: vsext.vf2 e8→e16 high */
     li t0, 4
@@ -69,7 +69,7 @@
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc5_exp, 8
     SET_TEST_NUM 6
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 7-8: vsext.vf2 e16→e32 basic */
     li t0, 4
@@ -84,7 +84,7 @@
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc7_exp, 16
     SET_TEST_NUM 8
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 9-10: vsext.vf2 e16→e32 max */
     li t0, 4
@@ -99,7 +99,7 @@
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc9_exp, 16
     SET_TEST_NUM 10
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 11-12: vsext.vf2 e16→e32 high */
     li t0, 4
@@ -114,7 +114,7 @@
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc11_exp, 16
     SET_TEST_NUM 12
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 13-14: vsext.vf2 e32→e64 basic */
     li t0, 4
@@ -129,7 +129,7 @@
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc13_exp, 32
     SET_TEST_NUM 14
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 15-16: vsext.vf2 e32→e64 max */
     li t0, 4
@@ -144,7 +144,7 @@
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc15_exp, 32
     SET_TEST_NUM 16
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 17-18: vsext.vf2 e32→e64 high */
     li t0, 4
@@ -159,7 +159,7 @@
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc17_exp, 32
     SET_TEST_NUM 18
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     PASS_TEST
 

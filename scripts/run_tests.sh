@@ -24,12 +24,21 @@ else
     RED='' GREEN='' YELLOW='' CYAN='' NC=''
 fi
 
-# Find all test binaries
+# Find all test binaries via MANIFEST
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
-TESTS=$(find tests -name '*.bin' -type f | sort)
+MANIFEST="tests/MANIFEST"
+if [ -f "$MANIFEST" ]; then
+    # Derive .bin paths from MANIFEST entries (tests/foo/bar.S -> tests/foo/bar.bin)
+    TESTS=$(sed 's/\.S$/.bin/' "$MANIFEST" | while read -r p; do
+        [ -f "$p" ] && echo "$p"
+    done)
+else
+    # Fallback: scan for .bin files (no MANIFEST present)
+    TESTS=$(find tests -name '*.bin' -type f | sort)
+fi
 TOTAL=$(echo "$TESTS" | wc -l | tr -d ' ')
 
 if [ "$TOTAL" -eq 0 ]; then

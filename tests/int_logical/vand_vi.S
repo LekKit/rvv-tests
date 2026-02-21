@@ -48,21 +48,27 @@
  *    43 = vand.vi e32 imm_n16: wrong result
  *    44 = vand.vi e32 imm_n16: witness changed
  *    45 = vand.vi e32 imm_n16: CSR side-effect
- *    46 = vand.vi e64 imm0: wrong result
- *    47 = vand.vi e64 imm0: witness changed
- *    48 = vand.vi e64 imm0: CSR side-effect
- *    49 = vand.vi e64 imm1: wrong result
- *    50 = vand.vi e64 imm1: witness changed
- *    51 = vand.vi e64 imm1: CSR side-effect
- *    52 = vand.vi e64 imm_n1: wrong result
- *    53 = vand.vi e64 imm_n1: witness changed
- *    54 = vand.vi e64 imm_n1: CSR side-effect
- *    55 = vand.vi e64 imm15: wrong result
- *    56 = vand.vi e64 imm15: witness changed
- *    57 = vand.vi e64 imm15: CSR side-effect
- *    58 = vand.vi e64 imm_n16: wrong result
- *    59 = vand.vi e64 imm_n16: witness changed
- *    60 = vand.vi e64 imm_n16: CSR side-effect
+ *    46 = vand.vi e32 basic overlap(vd=vs2): wrong result
+ *    47 = vand.vi e32 basic overlap(vd=vs2): witness changed
+ *    48 = vand.vi e32 basic overlap(vd=vs2): CSR side-effect
+ *    49 = vand.vi e32 basic masked: wrong result
+ *    50 = vand.vi e32 basic masked: witness changed
+ *    51 = vand.vi e32 basic masked: CSR side-effect
+ *    52 = vand.vi e64 imm0: wrong result
+ *    53 = vand.vi e64 imm0: witness changed
+ *    54 = vand.vi e64 imm0: CSR side-effect
+ *    55 = vand.vi e64 imm1: wrong result
+ *    56 = vand.vi e64 imm1: witness changed
+ *    57 = vand.vi e64 imm1: CSR side-effect
+ *    58 = vand.vi e64 imm_n1: wrong result
+ *    59 = vand.vi e64 imm_n1: witness changed
+ *    60 = vand.vi e64 imm_n1: CSR side-effect
+ *    61 = vand.vi e64 imm15: wrong result
+ *    62 = vand.vi e64 imm15: witness changed
+ *    63 = vand.vi e64 imm15: CSR side-effect
+ *    64 = vand.vi e64 imm_n16: wrong result
+ *    65 = vand.vi e64 imm_n16: witness changed
+ *    66 = vand.vi e64 imm_n16: CSR side-effect
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -368,47 +374,51 @@
     SET_TEST_NUM 45
     CHECK_CSRS_UNCHANGED
 
-    /* Test 46-48: vand.vi SEW=64 imm0 */
+    /* Test 46-48: vand.vi SEW=32 basic (vd=vs2) */
     li t0, 4
-    vsetvli t0, t0, e64, m1, tu, mu
+    vsetvli t0, t0, e32, m1, tu, mu
     la t1, tc46_s2
-    vle64.v v16, (t1)
+    vle32.v v8, (t1)
     la t1, tc46_w
-    vle64.v v24, (t1)
+    vle32.v v24, (t1)
     SAVE_CSRS
-    vand.vi v8, v16, 0
+    vand.vi v8, v8, 1
     SET_TEST_NUM 46
     la t1, result_buf
-    vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc46_exp, 32
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc46_exp, 16
     SET_TEST_NUM 47
     la t1, witness_buf
-    vse64.v v24, (t1)
-    CHECK_MEM witness_buf, tc46_w, 32
+    vse32.v v24, (t1)
+    CHECK_MEM witness_buf, tc46_w, 16
     SET_TEST_NUM 48
     CHECK_CSRS_UNCHANGED
 
-    /* Test 49-51: vand.vi SEW=64 imm1 */
+    /* Test 49-51: vand.vi SEW=32 basic (masked) */
     li t0, 4
-    vsetvli t0, t0, e64, m1, tu, mu
+    vsetvli t0, t0, e32, m1, tu, mu
     la t1, tc49_s2
-    vle64.v v16, (t1)
+    vle32.v v16, (t1)
+    la t1, tc49_vd
+    vle32.v v8, (t1)
+    la t1, tc49_mask
+    vlm.v v0, (t1)
     la t1, tc49_w
-    vle64.v v24, (t1)
+    vle32.v v24, (t1)
     SAVE_CSRS
-    vand.vi v8, v16, 1
+    vand.vi v8, v16, 1, v0.t
     SET_TEST_NUM 49
     la t1, result_buf
-    vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc49_exp, 32
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc49_exp, 16
     SET_TEST_NUM 50
     la t1, witness_buf
-    vse64.v v24, (t1)
-    CHECK_MEM witness_buf, tc49_w, 32
+    vse32.v v24, (t1)
+    CHECK_MEM witness_buf, tc49_w, 16
     SET_TEST_NUM 51
     CHECK_CSRS_UNCHANGED
 
-    /* Test 52-54: vand.vi SEW=64 imm_n1 */
+    /* Test 52-54: vand.vi SEW=64 imm0 */
     li t0, 4
     vsetvli t0, t0, e64, m1, tu, mu
     la t1, tc52_s2
@@ -416,7 +426,7 @@
     la t1, tc52_w
     vle64.v v24, (t1)
     SAVE_CSRS
-    vand.vi v8, v16, -1
+    vand.vi v8, v16, 0
     SET_TEST_NUM 52
     la t1, result_buf
     vse64.v v8, (t1)
@@ -428,7 +438,7 @@
     SET_TEST_NUM 54
     CHECK_CSRS_UNCHANGED
 
-    /* Test 55-57: vand.vi SEW=64 imm15 */
+    /* Test 55-57: vand.vi SEW=64 imm1 */
     li t0, 4
     vsetvli t0, t0, e64, m1, tu, mu
     la t1, tc55_s2
@@ -436,7 +446,7 @@
     la t1, tc55_w
     vle64.v v24, (t1)
     SAVE_CSRS
-    vand.vi v8, v16, 15
+    vand.vi v8, v16, 1
     SET_TEST_NUM 55
     la t1, result_buf
     vse64.v v8, (t1)
@@ -448,7 +458,7 @@
     SET_TEST_NUM 57
     CHECK_CSRS_UNCHANGED
 
-    /* Test 58-60: vand.vi SEW=64 imm_n16 */
+    /* Test 58-60: vand.vi SEW=64 imm_n1 */
     li t0, 4
     vsetvli t0, t0, e64, m1, tu, mu
     la t1, tc58_s2
@@ -456,7 +466,7 @@
     la t1, tc58_w
     vle64.v v24, (t1)
     SAVE_CSRS
-    vand.vi v8, v16, -16
+    vand.vi v8, v16, -1
     SET_TEST_NUM 58
     la t1, result_buf
     vse64.v v8, (t1)
@@ -466,6 +476,46 @@
     vse64.v v24, (t1)
     CHECK_MEM witness_buf, tc58_w, 32
     SET_TEST_NUM 60
+    CHECK_CSRS_UNCHANGED
+
+    /* Test 61-63: vand.vi SEW=64 imm15 */
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    la t1, tc61_s2
+    vle64.v v16, (t1)
+    la t1, tc61_w
+    vle64.v v24, (t1)
+    SAVE_CSRS
+    vand.vi v8, v16, 15
+    SET_TEST_NUM 61
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc61_exp, 32
+    SET_TEST_NUM 62
+    la t1, witness_buf
+    vse64.v v24, (t1)
+    CHECK_MEM witness_buf, tc61_w, 32
+    SET_TEST_NUM 63
+    CHECK_CSRS_UNCHANGED
+
+    /* Test 64-66: vand.vi SEW=64 imm_n16 */
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    la t1, tc64_s2
+    vle64.v v16, (t1)
+    la t1, tc64_w
+    vle64.v v24, (t1)
+    SAVE_CSRS
+    vand.vi v8, v16, -16
+    SET_TEST_NUM 64
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc64_exp, 32
+    SET_TEST_NUM 65
+    la t1, witness_buf
+    vse64.v v24, (t1)
+    CHECK_MEM witness_buf, tc64_w, 32
+    SET_TEST_NUM 66
     CHECK_CSRS_UNCHANGED
 
     PASS_TEST
@@ -576,40 +626,59 @@ tc43_exp:
     .word 0x00000000, 0xfffffff0, 0x00000000, 0xfffffff0
 tc43_w:
     .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
-.align 3
+.align 2
 tc46_s2:
-    .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
+    .word 0x00000001, 0x00000002, 0x00000003, 0x00000004
 tc46_exp:
-    .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
+    .word 0x00000001, 0x00000000, 0x00000001, 0x00000000
 tc46_w:
-    .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
-.align 3
+    .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
+.align 1
+tc49_mask:
+    .byte 10
+.align 2
 tc49_s2:
-    .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
+    .word 0x00000001, 0x00000002, 0x00000003, 0x00000004
+tc49_vd:
+    .word 0x0000dead, 0x0000dead, 0x0000dead, 0x0000dead
 tc49_exp:
-    .dword 0x0000000000000001, 0x0000000000000000, 0x0000000000000001, 0x0000000000000000
+    .word 0x0000dead, 0x00000000, 0x0000dead, 0x00000000
 tc49_w:
-    .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
+    .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
 .align 3
 tc52_s2:
     .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
 tc52_exp:
-    .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
+    .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
 tc52_w:
     .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
 .align 3
 tc55_s2:
     .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
 tc55_exp:
-    .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
+    .dword 0x0000000000000001, 0x0000000000000000, 0x0000000000000001, 0x0000000000000000
 tc55_w:
     .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
 .align 3
 tc58_s2:
-    .dword 0x0000000000000000, 0xffffffffffffffff, 0x0000000000000001, 0xfffffffffffffffe
+    .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
 tc58_exp:
-    .dword 0x0000000000000000, 0xfffffffffffffff0, 0x0000000000000000, 0xfffffffffffffff0
+    .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
 tc58_w:
+    .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
+.align 3
+tc61_s2:
+    .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
+tc61_exp:
+    .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
+tc61_w:
+    .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
+.align 3
+tc64_s2:
+    .dword 0x0000000000000000, 0xffffffffffffffff, 0x0000000000000001, 0xfffffffffffffffe
+tc64_exp:
+    .dword 0x0000000000000000, 0xfffffffffffffff0, 0x0000000000000000, 0xfffffffffffffff0
+tc64_w:
     .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
 
 .align 4

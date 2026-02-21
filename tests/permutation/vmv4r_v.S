@@ -18,7 +18,7 @@
     la t1, result_buf
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc1_src, 64
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     PASS_TEST
 

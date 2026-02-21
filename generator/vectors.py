@@ -16,11 +16,12 @@ def binop_vv(sew: int) -> list[tuple[str, list[int], list[int]]]:
     m = M(sew)
     h = 1 << (sew - 1)
     return [
-        ("basic",  [1, 2, 3, 4],         [10, 20, 30, 40]),
-        ("zeros",  [0, 0, 0, 0],         [0, 0, 0, 0]),
-        ("max",    [m, m, m, m],         [1, 2, 3, 4]),
-        ("signed", [h - 1, h, h + 1, m], [1, 1, 1, 1]),
-        ("mixed",  [0, 1, h, m],         [m, h, 1, 0]),
+        ("basic",   [1, 2, 3, 4],         [10, 20, 30, 40]),
+        ("zeros",   [0, 0, 0, 0],         [0, 0, 0, 0]),
+        ("max",     [m, m, m, m],         [1, 2, 3, 4]),
+        ("signed",  [h - 1, h, h + 1, m], [1, 1, 1, 1]),
+        ("mixed",   [0, 1, h, m],         [m, h, 1, 0]),
+        ("extreme", [h, m, h, m],         [h, m, 0, m]),
     ]
 
 

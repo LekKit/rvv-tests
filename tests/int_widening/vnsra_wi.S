@@ -28,7 +28,7 @@
     la t1, result_buf
     vse8.v v8, (t1)
     CHECK_MEM result_buf, tc1_exp, 4
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     li t0, 4
     vsetvli t0, t0, e16, m2, tu, mu
@@ -41,7 +41,7 @@
     la t1, result_buf
     vse8.v v8, (t1)
     CHECK_MEM result_buf, tc2_exp, 4
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     li t0, 4
     vsetvli t0, t0, e16, m2, tu, mu
@@ -54,7 +54,7 @@
     la t1, result_buf
     vse8.v v8, (t1)
     CHECK_MEM result_buf, tc3_exp, 4
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     li t0, 4
     vsetvli t0, t0, e32, m2, tu, mu
@@ -67,7 +67,7 @@
     la t1, result_buf
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc4_exp, 8
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     li t0, 4
     vsetvli t0, t0, e32, m2, tu, mu
@@ -80,7 +80,7 @@
     la t1, result_buf
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc5_exp, 8
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     li t0, 4
     vsetvli t0, t0, e32, m2, tu, mu
@@ -93,7 +93,7 @@
     la t1, result_buf
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc6_exp, 8
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     li t0, 4
     vsetvli t0, t0, e64, m2, tu, mu
@@ -106,7 +106,7 @@
     la t1, result_buf
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc7_exp, 16
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     li t0, 4
     vsetvli t0, t0, e64, m2, tu, mu
@@ -119,7 +119,7 @@
     la t1, result_buf
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc8_exp, 16
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     li t0, 4
     vsetvli t0, t0, e64, m2, tu, mu
@@ -132,7 +132,7 @@
     la t1, result_buf
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc9_exp, 16
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     PASS_TEST
 

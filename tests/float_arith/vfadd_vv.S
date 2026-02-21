@@ -12,12 +12,18 @@
  *     7 = vfadd.vv e32 zeros: wrong result
  *     8 = vfadd.vv e32 zeros: witness changed
  *     9 = vfadd.vv e32 zeros: CSR side-effect
- *    10 = vfadd.vv e64 basic: wrong result
- *    11 = vfadd.vv e64 basic: witness changed
- *    12 = vfadd.vv e64 basic: CSR side-effect
- *    13 = vfadd.vv e64 negpos: wrong result
- *    14 = vfadd.vv e64 negpos: witness changed
- *    15 = vfadd.vv e64 negpos: CSR side-effect
+ *    10 = vfadd.vv e32 basic overlap(vd=vs2): wrong result
+ *    11 = vfadd.vv e32 basic overlap(vd=vs2): witness changed
+ *    12 = vfadd.vv e32 basic overlap(vd=vs2): CSR side-effect
+ *    13 = vfadd.vv e32 basic masked: wrong result
+ *    14 = vfadd.vv e32 basic masked: witness changed
+ *    15 = vfadd.vv e32 basic masked: CSR side-effect
+ *    16 = vfadd.vv e64 basic: wrong result
+ *    17 = vfadd.vv e64 basic: witness changed
+ *    18 = vfadd.vv e64 basic: CSR side-effect
+ *    19 = vfadd.vv e64 negpos: wrong result
+ *    20 = vfadd.vv e64 negpos: witness changed
+ *    21 = vfadd.vv e64 negpos: CSR side-effect
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -89,48 +95,96 @@
     SET_TEST_NUM 9
     CHECK_CSRS_UNCHANGED_FP
 
-    /* Test 10-12: vfadd.vv SEW=64 basic */
+    /* Test 10-12: vfadd.vv SEW=32 basic (vd=vs2) */
     li t0, 4
-    vsetvli t0, t0, e64, m1, tu, mu
+    vsetvli t0, t0, e32, m1, tu, mu
     la t1, tc10_s2
-    vle64.v v16, (t1)
+    vle32.v v8, (t1)
     la t1, tc10_s1
-    vle64.v v20, (t1)
+    vle32.v v20, (t1)
     la t1, tc10_w
-    vle64.v v24, (t1)
+    vle32.v v24, (t1)
     SAVE_CSRS
-    vfadd.vv v8, v16, v20
+    vfadd.vv v8, v8, v20
     SET_TEST_NUM 10
     la t1, result_buf
-    vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc10_exp, 32
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc10_exp, 16
     SET_TEST_NUM 11
     la t1, witness_buf
-    vse64.v v24, (t1)
-    CHECK_MEM witness_buf, tc10_w, 32
+    vse32.v v24, (t1)
+    CHECK_MEM witness_buf, tc10_w, 16
     SET_TEST_NUM 12
     CHECK_CSRS_UNCHANGED_FP
 
-    /* Test 13-15: vfadd.vv SEW=64 negpos */
+    /* Test 13-15: vfadd.vv SEW=32 basic (masked) */
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc13_s2
+    vle32.v v16, (t1)
+    la t1, tc13_s1
+    vle32.v v20, (t1)
+    la t1, tc13_vd
+    vle32.v v8, (t1)
+    la t1, tc13_mask
+    vlm.v v0, (t1)
+    la t1, tc13_w
+    vle32.v v24, (t1)
+    SAVE_CSRS
+    vfadd.vv v8, v16, v20, v0.t
+    SET_TEST_NUM 13
+    la t1, result_buf
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc13_exp, 16
+    SET_TEST_NUM 14
+    la t1, witness_buf
+    vse32.v v24, (t1)
+    CHECK_MEM witness_buf, tc13_w, 16
+    SET_TEST_NUM 15
+    CHECK_CSRS_UNCHANGED_FP
+
+    /* Test 16-18: vfadd.vv SEW=64 basic */
     li t0, 4
     vsetvli t0, t0, e64, m1, tu, mu
-    la t1, tc13_s2
+    la t1, tc16_s2
     vle64.v v16, (t1)
-    la t1, tc13_s1
+    la t1, tc16_s1
     vle64.v v20, (t1)
-    la t1, tc13_w
+    la t1, tc16_w
     vle64.v v24, (t1)
     SAVE_CSRS
     vfadd.vv v8, v16, v20
-    SET_TEST_NUM 13
+    SET_TEST_NUM 16
     la t1, result_buf
     vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc13_exp, 32
-    SET_TEST_NUM 14
+    CHECK_MEM result_buf, tc16_exp, 32
+    SET_TEST_NUM 17
     la t1, witness_buf
     vse64.v v24, (t1)
-    CHECK_MEM witness_buf, tc13_w, 32
-    SET_TEST_NUM 15
+    CHECK_MEM witness_buf, tc16_w, 32
+    SET_TEST_NUM 18
+    CHECK_CSRS_UNCHANGED_FP
+
+    /* Test 19-21: vfadd.vv SEW=64 negpos */
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    la t1, tc19_s2
+    vle64.v v16, (t1)
+    la t1, tc19_s1
+    vle64.v v20, (t1)
+    la t1, tc19_w
+    vle64.v v24, (t1)
+    SAVE_CSRS
+    vfadd.vv v8, v16, v20
+    SET_TEST_NUM 19
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc19_exp, 32
+    SET_TEST_NUM 20
+    la t1, witness_buf
+    vse64.v v24, (t1)
+    CHECK_MEM witness_buf, tc19_w, 32
+    SET_TEST_NUM 21
     CHECK_CSRS_UNCHANGED_FP
 
     PASS_TEST
@@ -163,23 +217,46 @@ tc7_exp:
     .word 0x00000000, 0x00000000, 0x00000000, 0x80000000
 tc7_w:
     .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
-.align 3
+.align 2
 tc10_s2:
-    .dword 0x3ff0000000000000, 0x4000000000000000, 0x4008000000000000, 0x4010000000000000
+    .word 0x3f800000, 0x40000000, 0x40400000, 0x40800000
 tc10_s1:
-    .dword 0x3fe0000000000000, 0x3fd0000000000000, 0x3fc0000000000000, 0x3fb0000000000000
+    .word 0x3f000000, 0x3e800000, 0x3e000000, 0x3d800000
 tc10_exp:
-    .dword 0x3ff8000000000000, 0x4002000000000000, 0x4009000000000000, 0x4010400000000000
+    .word 0x3fc00000, 0x40100000, 0x40480000, 0x40820000
 tc10_w:
+    .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
+.align 1
+tc13_mask:
+    .byte 10
+.align 2
+tc13_s2:
+    .word 0x3f800000, 0x40000000, 0x40400000, 0x40800000
+tc13_s1:
+    .word 0x3f000000, 0x3e800000, 0x3e000000, 0x3d800000
+tc13_vd:
+    .word 0x42c80000, 0x42c80000, 0x42c80000, 0x42c80000
+tc13_exp:
+    .word 0x42c80000, 0x40100000, 0x42c80000, 0x40820000
+tc13_w:
+    .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
+.align 3
+tc16_s2:
+    .dword 0x3ff0000000000000, 0x4000000000000000, 0x4008000000000000, 0x4010000000000000
+tc16_s1:
+    .dword 0x3fe0000000000000, 0x3fd0000000000000, 0x3fc0000000000000, 0x3fb0000000000000
+tc16_exp:
+    .dword 0x3ff8000000000000, 0x4002000000000000, 0x4009000000000000, 0x4010400000000000
+tc16_w:
     .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
 .align 3
-tc13_s2:
+tc19_s2:
     .dword 0xbff0000000000000, 0xc000000000000000, 0x4008000000000000, 0x4010000000000000
-tc13_s1:
+tc19_s1:
     .dword 0x3ff0000000000000, 0x4000000000000000, 0xc008000000000000, 0xc010000000000000
-tc13_exp:
+tc19_exp:
     .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
-tc13_w:
+tc19_w:
     .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
 
 .align 4

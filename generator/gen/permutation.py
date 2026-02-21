@@ -15,7 +15,7 @@ from ..common import (
     f32_to_bits, f64_to_bits,
 )
 from ..testfile import TestFile
-from ..emit import VREG_DST, VREG_SRC2, VREG_SRC1, VREG_WITNESS
+from ..emit import VREG_DST, VREG_SRC2, VREG_SRC1
 
 
 def generate(base_dir: Path) -> list[str]:
@@ -765,7 +765,7 @@ def generate(base_dir: Path) -> list[str]:
     tf.code(f"la t1, result_buf")
     tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
     tf.code(f"CHECK_MEM result_buf, {tag}_src, {nbytes}")
-    tf.code("CHECK_VSTART_ZERO")
+    tf.code("CHECK_CSRS_UNCHANGED")
     tf.data_align(sew)
     tf.data_label(f"{tag}_src", format_data_line(src, sew))
     tf.write(fpath)
@@ -804,7 +804,7 @@ def generate(base_dir: Path) -> list[str]:
         tf.code(f"la t1, result_buf")
         tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
         tf.code(f"CHECK_MEM result_buf, {tag}_src, {nbytes}")
-        tf.code("CHECK_VSTART_ZERO")
+        tf.code("CHECK_CSRS_UNCHANGED")
 
         tf.data_align(sew)
         tf.data_label(f"{tag}_src", format_data_line(src_data, sew))

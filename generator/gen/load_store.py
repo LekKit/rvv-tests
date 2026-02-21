@@ -207,7 +207,7 @@ def generate(base_dir: Path) -> list[str]:
         tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
         tf.code(f"CHECK_MEM result_buf, {tag}_data, {nbytes}")
         # vl may have been reduced by ff, but for valid memory it shouldn't
-        tf.code("CHECK_VSTART_ZERO")
+        tf.code("CHECK_CSRS_UNCHANGED")
 
         tf.data_align(sew)
         tf.data_label(f"{tag}_data", format_data_line(src_vals, sew))
@@ -238,7 +238,7 @@ def generate(base_dir: Path) -> list[str]:
             tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
             # Only check first register's worth of data
             tf.code(f"CHECK_MEM result_buf, {tag}_data, {nbytes}")
-            tf.code("CHECK_VSTART_ZERO")
+            tf.code("CHECK_CSRS_UNCHANGED")
 
             tf.data_align(sew)
             tf.data_label(f"{tag}_data", format_data_line(src_vals, sew))
@@ -266,12 +266,38 @@ def generate(base_dir: Path) -> list[str]:
         tf.code(f"vs{nregs}r.v {VREG_DST}, (t1)")
         tf.code(f"SET_TEST_NUM {cn}")
         tf.code(f"CHECK_MEM result_buf, {tag}_data, {nbytes}")
-        tf.code("CHECK_VSTART_ZERO")
+        tf.code("CHECK_CSRS_UNCHANGED")
 
         tf.data_align(sew)
         tf.data_label(f"{tag}_data", format_data_line(src_vals, sew))
 
         tf.write(fpath)
         generated.append(str(fpath))
+
+    # --- vsm.v (standalone mask store test) ---
+    fpath = base_dir / "tests" / "store" / "vsm.S"
+    tf = TestFile("vsm.v", "Unit-stride mask store")
+    cn = tf.next_check("vsm.v: basic mask store")
+    tag = f"tc{cn}"
+    tf.code(f"li t0, {NUM_ELEMS}")
+    tf.code(f"vsetvli t0, t0, e8, m1, tu, mu")
+    # Load a known mask pattern into a vector register
+    tf.code(f"la t1, {tag}_mask")
+    tf.code(f"vlm.v {VREG_DST}, (t1)")
+    tf.code("SAVE_CSRS")
+    # Store it using vsm.v
+    tf.code(f"la t1, result_buf")
+    tf.code(f"vsm.v {VREG_DST}, (t1)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    # Verify by scalar load
+    tf.code(f"lbu t2, 0(t1)")
+    tf.code(f"andi t2, t2, 0xF")  # only low NUM_ELEMS bits
+    tf.code(f"li t3, 0b0101")
+    tf.code("FAIL_IF_NE t2, t3")
+    tf.code("CHECK_CSRS_UNCHANGED")
+    tf.data(".align 1")
+    tf.data_label(f"{tag}_mask", "    .byte 0b0101")
+    tf.write(fpath)
+    generated.append(str(fpath))
 
     return generated

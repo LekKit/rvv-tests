@@ -9,7 +9,10 @@ from pathlib import Path
 
 from ..common import SEWS, WIDENING_SEWS, M, U, format_data_line, format_hex, NUM_ELEMS
 from ..testfile import TestFile
-from ..emit import emit_binop_vv, VREG_SRC2, VREG_SRC1, VREG_DST
+from ..emit import (
+    emit_binop_vv, emit_binop_vv_overlap, emit_binop_vv_masked,
+    VREG_SRC2, VREG_SRC1, VREG_DST,
+)
 from ..vectors import binop_vv, binop_vx
 from ..compute.fixed_point import (
     saddu, sadd, ssubu, ssub,
@@ -37,6 +40,27 @@ def generate(base_dir: Path) -> list[str]:
                 exp = [r[0] for r in results]
                 emit_binop_vv(tf, mnemonic, sew, name, s2, s1, exp,
                               csr_check="CHECK_CSRS_UNCHANGED_FIXEDPOINT")
+
+            # Overlap + Masked at e32 only
+            if sew == 32:
+                s2_ov, s1_ov = [1, 2, 3, 4], [10, 20, 30, 40]
+                results_ov = [cfn(a, b, sew) for a, b in zip(s2_ov, s1_ov)]
+                exp_ov = [r[0] for r in results_ov]
+                emit_binop_vv_overlap(
+                    tf, mnemonic, sew, "basic", s2_ov, s1_ov, exp_ov,
+                    csr_check="CHECK_CSRS_UNCHANGED_FIXEDPOINT",
+                )
+                vd_init = [0xDEAD] * 4
+                mask_bits = 0b1010
+                exp_masked = [
+                    exp_ov[i] if (mask_bits >> i) & 1 else vd_init[i]
+                    for i in range(4)
+                ]
+                emit_binop_vv_masked(
+                    tf, mnemonic, sew, "basic",
+                    s2_ov, s1_ov, vd_init, mask_bits, exp_masked,
+                    csr_check="CHECK_CSRS_UNCHANGED_FIXEDPOINT",
+                )
         fpath = out / fname
         tf.write(fpath)
         generated.append(str(fpath))
@@ -55,7 +79,6 @@ def generate(base_dir: Path) -> list[str]:
                 exp = [cfn(a, b, sew, vxrm=0) for a, b in zip(s2, s1)]
                 # Need to set vxrm before the instruction
                 nbytes = NUM_ELEMS * (sew // 8)
-                from ..common import witness_pattern
                 cn_res = tf.next_check(f"{mnemonic} e{sew} {name}: result")
                 cn_csr = tf.next_check(f"{mnemonic} e{sew} {name}: CSR")
                 tag = f"tc{cn_res}"
@@ -76,10 +99,7 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
                 tf.code(f"SET_TEST_NUM {cn_csr}")
-                tf.code("CHECK_VSTART_ZERO")
-                tf.code("CHECK_VXRM_UNCHANGED")
-                tf.code("CHECK_VL_UNCHANGED")
-                tf.code("CHECK_VTYPE_UNCHANGED")
+                tf.code("CHECK_CSRS_UNCHANGED")
 
                 tf.data_align(sew)
                 tf.data_label(f"{tag}_s2", format_data_line(s2, sew))
@@ -121,7 +141,7 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"la t1, result_buf")
                 tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-                tf.code("CHECK_VSTART_ZERO")
+                tf.code("CHECK_CSRS_UNCHANGED")
 
                 tf.data_align(sew)
                 tf.data_label(f"{tag}_s2", format_data_line(s2, sew))
@@ -232,8 +252,7 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"la t1, result_buf")
                 tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-                tf.code("CHECK_VSTART_ZERO")
-                tf.code("CHECK_VXRM_UNCHANGED")
+                tf.code("CHECK_CSRS_UNCHANGED")
 
                 tf.data_align(sew)
                 tf.data_label(f"{tag}_s2", format_data_line(s2, sew))
@@ -290,7 +309,7 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"la t1, result_buf")
                 tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-                tf.code("CHECK_VSTART_ZERO")
+                tf.code("CHECK_CSRS_UNCHANGED_FIXEDPOINT")
 
                 tf.data_align(sew)
                 tf.data_label(f"{tag}_s2", format_data_line(s2, sew))
@@ -328,7 +347,7 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"la t1, result_buf")
                 tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-                tf.code("CHECK_VSTART_ZERO")
+                tf.code("CHECK_CSRS_UNCHANGED")
 
                 tf.data_align(sew)
                 tf.data_label(f"{tag}_s2", format_data_line(s2, sew))
@@ -363,7 +382,7 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"la t1, result_buf")
                 tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-                tf.code("CHECK_VSTART_ZERO")
+                tf.code("CHECK_CSRS_UNCHANGED")
 
                 tf.data_align(sew)
                 tf.data_label(f"{tag}_s2", format_data_line(s2, sew))
@@ -434,7 +453,7 @@ def generate(base_dir: Path) -> list[str]:
                     tf.code(f"la t1, result_buf")
                     tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
                     tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-                    tf.code("CHECK_VSTART_ZERO")
+                    tf.code("CHECK_CSRS_UNCHANGED_FIXEDPOINT")
 
                     tf.data_align(dsew)
                     tf.data_label(f"{tag}_s2w", format_data_line(s2_wide, dsew))

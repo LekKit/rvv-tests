@@ -1,4 +1,17 @@
 tests/config/vsetvli.S
+tests/edge_cases/lmul_gt1_fp.S
+tests/edge_cases/lmul_gt1_int.S
+tests/edge_cases/tail_masked_combined.S
+tests/edge_cases/tail_undisturbed.S
+tests/edge_cases/tail_vlmax_fp.S
+tests/edge_cases/tail_vlmax_int.S
+tests/edge_cases/tail_vlmax_load.S
+tests/edge_cases/tail_vlmax_widening.S
+tests/edge_cases/vl_zero.S
+tests/edge_cases/vl_zero_fp.S
+tests/edge_cases/vl_zero_load.S
+tests/edge_cases/vl_zero_store.S
+tests/edge_cases/vle32ff_fault.S
 tests/fixed_point/vaadd_vv.S
 tests/fixed_point/vaadd_vx.S
 tests/fixed_point/vaaddu_vv.S
@@ -614,6 +627,7 @@ tests/store/vse16.S
 tests/store/vse32.S
 tests/store/vse64.S
 tests/store/vse8.S
+tests/store/vsm.S
 tests/store/vsoxei16.S
 tests/store/vsoxei32.S
 tests/store/vsoxei64.S

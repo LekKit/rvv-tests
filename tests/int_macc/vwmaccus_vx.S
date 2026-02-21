@@ -4,14 +4,17 @@
  * Exit code 0 = PASS
  * Exit code N = check N failed:
  *     1 = vwmaccus.vx e8 basic: result
- *     2 = vwmaccus.vx e16 basic: result
- *     3 = vwmaccus.vx e32 basic: result
+ *     2 = vwmaccus.vx e8 basic: CSR side-effect
+ *     3 = vwmaccus.vx e16 basic: result
+ *     4 = vwmaccus.vx e16 basic: CSR side-effect
+ *     5 = vwmaccus.vx e32 basic: result
+ *     6 = vwmaccus.vx e32 basic: CSR side-effect
  */
 #include "riscv_test.h"
 #include "test_macros.h"
 
 
-    /* Test 1: vwmaccus.vx SEW=8 */
+    /* Test 1-2: vwmaccus.vx SEW=8 */
     li t0, 4
     vsetvli t0, t0, e16, m2, tu, mu
     la t1, tc1_vd
@@ -22,48 +25,54 @@
     li a0, 0x02
     SAVE_CSRS
     vwmaccus.vx v8, a0, v16
+    SET_TEST_NUM 2
+    CHECK_CSRS_UNCHANGED
     SET_TEST_NUM 1
+    li t0, 4
     vsetvli t0, t0, e16, m2, tu, mu
     la t1, result_buf
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc1_exp, 8
-    CHECK_VSTART_ZERO
 
-    /* Test 2: vwmaccus.vx SEW=16 */
+    /* Test 3-4: vwmaccus.vx SEW=16 */
     li t0, 4
     vsetvli t0, t0, e32, m2, tu, mu
-    la t1, tc2_vd
+    la t1, tc3_vd
     vle32.v v8, (t1)
     vsetvli t0, t0, e16, m1, tu, mu
-    la t1, tc2_s2
+    la t1, tc3_s2
     vle16.v v16, (t1)
     li a0, 0x0002
     SAVE_CSRS
     vwmaccus.vx v8, a0, v16
-    SET_TEST_NUM 2
+    SET_TEST_NUM 4
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 3
+    li t0, 4
     vsetvli t0, t0, e32, m2, tu, mu
     la t1, result_buf
     vse32.v v8, (t1)
-    CHECK_MEM result_buf, tc2_exp, 16
-    CHECK_VSTART_ZERO
+    CHECK_MEM result_buf, tc3_exp, 16
 
-    /* Test 3: vwmaccus.vx SEW=32 */
+    /* Test 5-6: vwmaccus.vx SEW=32 */
     li t0, 4
     vsetvli t0, t0, e64, m2, tu, mu
-    la t1, tc3_vd
+    la t1, tc5_vd
     vle64.v v8, (t1)
     vsetvli t0, t0, e32, m1, tu, mu
-    la t1, tc3_s2
+    la t1, tc5_s2
     vle32.v v16, (t1)
     li a0, 0x00000002
     SAVE_CSRS
     vwmaccus.vx v8, a0, v16
-    SET_TEST_NUM 3
+    SET_TEST_NUM 6
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 5
+    li t0, 4
     vsetvli t0, t0, e64, m2, tu, mu
     la t1, result_buf
     vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc3_exp, 32
-    CHECK_VSTART_ZERO
+    CHECK_MEM result_buf, tc5_exp, 32
 
     PASS_TEST
 
@@ -76,18 +85,18 @@ tc1_s2:
 tc1_exp:
     .half 0x0014, 0x0028, 0x003c, 0x0050
 .align 2
-tc2_vd:
+tc3_vd:
     .word 0x00000000, 0x00000000, 0x00000000, 0x00000000
-tc2_s2:
+tc3_s2:
     .half 0x000a, 0x0014, 0x001e, 0x0028
-tc2_exp:
+tc3_exp:
     .word 0x00000014, 0x00000028, 0x0000003c, 0x00000050
 .align 3
-tc3_vd:
+tc5_vd:
     .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
-tc3_s2:
+tc5_s2:
     .word 0x0000000a, 0x00000014, 0x0000001e, 0x00000028
-tc3_exp:
+tc5_exp:
     .dword 0x0000000000000014, 0x0000000000000028, 0x000000000000003c, 0x0000000000000050
 
 .align 4

@@ -5,6 +5,7 @@ This project was entirely generated through AI-assisted development (vibecoding)
 ## Tools used
 
 - **[OpenCode](https://github.com/anomalyco/opencode)** with Anthropic Claude Opus 4.6 — all code generation, architecture design, debugging, and test vector computation
+- **Google Gemini 3.1 Pro** (chat, not agentic) — architectural review and test strategy suggestions: register overlap hazard testing, VLEN-agnostic tail checking via `vs1r.v`/`vlenb`, extreme arithmetic corner cases, LMUL>1 boundary crossing, mask/tail policy interaction, vstart platform limitations diagnosis, vl=0 no-op coverage, fault-only-first strategy
 - **Human operator** — project direction, review, and deployment coordination
 
 ## What was AI-generated
@@ -30,7 +31,7 @@ rvv-tests/
 ├── scripts/
 │   └── run_tests.sh               # Test runner (local + SSH modes)
 ├── generator/                     # Python test generator framework
-│   ├── main.py                    # Driver: imports generators, writes MANIFEST
+│   ├── main.py                    # Driver: imports generators, cleans tests/, writes MANIFEST
 │   ├── common.py                  # Shared constants (SEWS, NUM_ELEMS, M/S/U, IEEE754)
 │   ├── testfile.py                # TestFile class (assembly file builder)
 │   ├── emit.py                    # Reusable emit helpers (binop, widening, compare, ...)
@@ -55,8 +56,9 @@ rvv-tests/
 │       ├── float_widening.py      # Widening/narrowing FP arith + conversions
 │       ├── reduction.py           # Integer + FP reductions
 │       ├── mask.py                # Mask logical + population/find/set/iota/vid
-│       └── permutation.py         # Slides, gathers, compress, moves, merges
-├── tests/                         # Generated .S files (628 total)
+│       ├── permutation.py         # Slides, gathers, compress, moves, merges
+│       └── edge_cases.py          # vl=0, tail undisturbed, LMUL>1, fault-only-first
+├── tests/                         # Generated .S files (642 total) — fully regenerated on each run
 │   ├── MANIFEST                   # List of all test file paths
 │   ├── config/                    # vsetvli (covers vsetvli/vsetivli/vsetvl)
 │   ├── load/                      # vle*, vlse*, vlm, vle*ff, vl*re*
@@ -86,7 +88,8 @@ rvv-tests/
 │   ├── float_narrowing/           # vfncvt* (including rod)
 │   ├── reduction/                 # vredsum..vfwredusum
 │   ├── mask/                      # vmand..vid
-│   └── permutation/               # vslide..vmv*r
+│   ├── permutation/               # vslide..vmv*r
+│   └── edge_cases/                # vl=0, tail, LMUL>1, vle32ff fault
 └── fuzzer/                        # Planned AFL++ fuzzing (not yet implemented)
 ```
 
@@ -95,6 +98,8 @@ rvv-tests/
 ### Test format
 
 Each `.S` file is a **standalone static binary** — no libc, no dynamic linking. The entry point `_start` (from `riscv_test.h`) sets up a small stack and jumps to `_test_start`. Tests exit via Linux syscall 93: exit code 0 means all checks passed, any nonzero code identifies the first check that failed. Check meanings are documented in comments at the top of each generated `.S` file.
+
+Edge case tests also use Linux syscalls 222 (mmap) and 215 (munmap) to create page-boundary conditions for fault-only-first load testing.
 
 ### Register allocation convention
 
@@ -109,12 +114,15 @@ All tests use a fixed register allocation to keep things predictable:
 | `v0` | Mask register (when needed) |
 | `a0` | Scalar operand for VX forms |
 | `fa0` | FP scalar operand for VF forms |
-| `s0`-`s5` | Saved CSR snapshots (vstart, vxsat, vxrm, vl, vtype, fcsr) |
+| `s0`–`s5` | Saved CSR snapshots (vstart, vxsat, vxrm, vl, vtype, fcsr) |
+| `s6`–`s10` | Free for test-specific use (e.g. mmap base, load pointer, saved vl) |
 | `s11` | Current test/check number (used as exit code on failure) |
 
 ### VLEN-agnostic design
 
 Tests use `vsetvli` with `vl=4` and `LMUL=1`, so they work on any hardware with `VLEN >= 128`. The fixed small element count (NUM_ELEMS=4) keeps test data manageable and avoids VLEN-dependent behavior.
+
+Full-VLMAX tail tests are the exception: they use `vsetvli t0, x0, ...` (request VLMAX), dump with `vs1r.v`/`vs2r.v` (stores exactly VLEN/8 or 2×VLEN/8 bytes regardless of vtype/vl), and compute the tail region size at runtime via `csrr vlenb`.
 
 ### Side-effect checking
 
@@ -133,6 +141,10 @@ Three macro variants handle different instruction classes:
 - `CHECK_CSRS_UNCHANGED_FP` — skips fcsr (FP ops may set fflags)
 - `CHECK_CSRS_UNCHANGED_FIXEDPOINT` — skips vxsat (saturating ops may set it)
 
+### Platform limitations
+
+**Writing vstart from userspace causes SIGILL** on Linux targets where the kernel does not support trap-and-emulate for vstart writes. This is legal per the RVV spec: hardware that never interrupts vector instructions mid-execution need not support arbitrary vstart values, and the kernel may trap writes to vstart as a high-cost operation. The `vstart_nonzero` test is therefore commented out (not deleted) in `edge_cases.py`; it is intended for a future bare-metal port.
+
 ### Code generation architecture
 
 The generator follows a pipeline:
@@ -142,6 +154,8 @@ The generator follows a pipeline:
 3. **`gen/*.py`** files iterate over SEW widths and test vectors, calling compute functions to get expected values, then calling emit helpers to generate the assembly
 4. **`emit.py`** provides reusable templates (`emit_binop_vv`, `emit_widening_vv`, `emit_compare_vv`, etc.) that handle the boilerplate: setup vtype, load sources, save CSRs, execute instruction, store result, compare, check CSRs, check witness
 5. **`testfile.py`** (`TestFile` class) accumulates `.text` and `.data` sections and writes the final `.S` file with proper includes and check number comments
+
+On each run, `main.py` removes the entire `tests/` directory before regenerating (safety: only proceeds if the directory is named `tests`), ensuring no stale files from removed tests accumulate.
 
 ### Chicken-and-egg resolution
 
@@ -159,3 +173,4 @@ Load/store tests are verified using scalar instructions (`lbu`/`lhu`/`lwu`/`ld`)
 - `result_buf`: 256 bytes — stores instruction output for memory comparison
 - `witness_buf`: 256 bytes — stores witness register for verification
 - Maximum usage: `nf=8, eew=64, 4 elements` = 8 * 4 * 8 = 256 bytes (exactly at capacity for segment load/store tests)
+- Full-VLMAX and widening edge case tests use their own larger buffers (512–1024 bytes) in `.data`, sized to support up to VLEN=4096

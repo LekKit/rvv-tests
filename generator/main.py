@@ -7,6 +7,7 @@ produced ``.S`` files, and writes a manifest (``tests/MANIFEST``) so the
 build system and test runner know exactly which tests exist.
 """
 
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -28,6 +29,7 @@ from .gen import (
     reduction,
     mask,
     permutation,
+    edge_cases,
 )
 
 # Ordered so that foundational tests (config, load/store) come first.
@@ -48,7 +50,24 @@ _GENERATORS: list[tuple[str, object]] = [
     ("reduction",       reduction),
     ("mask",            mask),
     ("permutation",     permutation),
+    ("edge_cases",      edge_cases),
 ]
+
+
+def _clean_tests_dir(tests_dir: Path, *, verbose: bool = False) -> None:
+    """Remove the ``tests/`` directory entirely before regenerating.
+
+    Safety: only removes if the directory is actually named ``tests``.
+    Everything inside is generated and will be recreated immediately after.
+    """
+    if not tests_dir.exists():
+        return
+    if tests_dir.name != "tests":
+        raise ValueError(f"Refusing to remove {tests_dir}: not named 'tests'")
+
+    shutil.rmtree(tests_dir)
+    if verbose:
+        print("  cleaned tests/ directory", file=sys.stderr)
 
 
 def run(base_dir: Path, *, verbose: bool = False) -> list[str]:
@@ -66,6 +85,9 @@ def run(base_dir: Path, *, verbose: bool = False) -> list[str]:
     list[str]
         Sorted list of paths (relative to *base_dir*) that were written.
     """
+    # Remove tests/ completely before regenerating (safe: only known file types).
+    _clean_tests_dir(base_dir / "tests", verbose=verbose)
+
     all_files: list[str] = []
     total_t0 = time.monotonic()
 

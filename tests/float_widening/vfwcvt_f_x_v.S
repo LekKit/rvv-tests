@@ -4,6 +4,7 @@
  * Exit code 0 = PASS
  * Exit code N = check N failed:
  *     1 = vfwcvt.f.x.v: result
+ *     2 = vfwcvt.f.x.v: CSR side-effect
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -14,13 +15,14 @@
     vle32.v v16, (t1)
     SAVE_CSRS
     vfwcvt.f.x.v v8, v16
+    SET_TEST_NUM 2
+    CHECK_CSRS_UNCHANGED_FP
     SET_TEST_NUM 1
+    li t0, 4
     vsetvli t0, t0, e64, m2, tu, mu
     la t1, result_buf
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc1_exp, 32
-    CHECK_VSTART_ZERO
-    CHECK_FCSR_UNCHANGED
 
     PASS_TEST
 

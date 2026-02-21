@@ -4,27 +4,40 @@
  * Exit code 0 = PASS
  * Exit code N = check N failed:
  *     1 = vfmax.vf e32 basic: wrong result
- *     2 = vfmax.vf e32 basic: CSR side-effect
- *     3 = vfmax.vf e32 zero: wrong result
- *     4 = vfmax.vf e32 zero: CSR side-effect
- *     5 = vfmax.vf e32 neg: wrong result
- *     6 = vfmax.vf e32 neg: CSR side-effect
- *     7 = vfmax.vf e64 basic: wrong result
- *     8 = vfmax.vf e64 basic: CSR side-effect
- *     9 = vfmax.vf e64 zero: wrong result
- *    10 = vfmax.vf e64 zero: CSR side-effect
+ *     2 = vfmax.vf e32 basic: witness changed
+ *     3 = vfmax.vf e32 basic: CSR side-effect
+ *     4 = vfmax.vf e32 zero: wrong result
+ *     5 = vfmax.vf e32 zero: witness changed
+ *     6 = vfmax.vf e32 zero: CSR side-effect
+ *     7 = vfmax.vf e32 neg: wrong result
+ *     8 = vfmax.vf e32 neg: witness changed
+ *     9 = vfmax.vf e32 neg: CSR side-effect
+ *    10 = vfmax.vf e32 basic overlap(vd=vs2): wrong result
+ *    11 = vfmax.vf e32 basic overlap(vd=vs2): witness changed
+ *    12 = vfmax.vf e32 basic overlap(vd=vs2): CSR side-effect
+ *    13 = vfmax.vf e32 basic masked: wrong result
+ *    14 = vfmax.vf e32 basic masked: witness changed
+ *    15 = vfmax.vf e32 basic masked: CSR side-effect
+ *    16 = vfmax.vf e64 basic: wrong result
+ *    17 = vfmax.vf e64 basic: witness changed
+ *    18 = vfmax.vf e64 basic: CSR side-effect
+ *    19 = vfmax.vf e64 zero: wrong result
+ *    20 = vfmax.vf e64 zero: witness changed
+ *    21 = vfmax.vf e64 zero: CSR side-effect
  */
 #include "riscv_test.h"
 #include "test_macros.h"
 
 
-    /* Test 1-2: vfmax.vf SEW=32 basic */
+    /* Test 1-3: vfmax.vf SEW=32 basic */
     li t0, 4
     vsetvli t0, t0, e32, m1, tu, mu
     la t1, tc1_s2
     vle32.v v16, (t1)
     la t1, tc1_fsc
     flw fa0, 0(t1)
+    la t1, tc1_w
+    vle32.v v24, (t1)
     SAVE_CSRS
     vfmax.vf v8, v16, fa0
     SET_TEST_NUM 1
@@ -32,70 +45,146 @@
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc1_exp, 16
     SET_TEST_NUM 2
-    CHECK_CSRS_UNCHANGED_FP
-
-    /* Test 3-4: vfmax.vf SEW=32 zero */
-    li t0, 4
-    vsetvli t0, t0, e32, m1, tu, mu
-    la t1, tc3_s2
-    vle32.v v16, (t1)
-    la t1, tc3_fsc
-    flw fa0, 0(t1)
-    SAVE_CSRS
-    vfmax.vf v8, v16, fa0
+    la t1, witness_buf
+    vse32.v v24, (t1)
+    CHECK_MEM witness_buf, tc1_w, 16
     SET_TEST_NUM 3
-    la t1, result_buf
-    vse32.v v8, (t1)
-    CHECK_MEM result_buf, tc3_exp, 16
-    SET_TEST_NUM 4
     CHECK_CSRS_UNCHANGED_FP
 
-    /* Test 5-6: vfmax.vf SEW=32 neg */
+    /* Test 4-6: vfmax.vf SEW=32 zero */
     li t0, 4
     vsetvli t0, t0, e32, m1, tu, mu
-    la t1, tc5_s2
+    la t1, tc4_s2
     vle32.v v16, (t1)
-    la t1, tc5_fsc
+    la t1, tc4_fsc
     flw fa0, 0(t1)
+    la t1, tc4_w
+    vle32.v v24, (t1)
     SAVE_CSRS
     vfmax.vf v8, v16, fa0
-    SET_TEST_NUM 5
+    SET_TEST_NUM 4
     la t1, result_buf
     vse32.v v8, (t1)
-    CHECK_MEM result_buf, tc5_exp, 16
+    CHECK_MEM result_buf, tc4_exp, 16
+    SET_TEST_NUM 5
+    la t1, witness_buf
+    vse32.v v24, (t1)
+    CHECK_MEM witness_buf, tc4_w, 16
     SET_TEST_NUM 6
     CHECK_CSRS_UNCHANGED_FP
 
-    /* Test 7-8: vfmax.vf SEW=64 basic */
+    /* Test 7-9: vfmax.vf SEW=32 neg */
     li t0, 4
-    vsetvli t0, t0, e64, m1, tu, mu
+    vsetvli t0, t0, e32, m1, tu, mu
     la t1, tc7_s2
-    vle64.v v16, (t1)
+    vle32.v v16, (t1)
     la t1, tc7_fsc
-    fld fa0, 0(t1)
+    flw fa0, 0(t1)
+    la t1, tc7_w
+    vle32.v v24, (t1)
     SAVE_CSRS
     vfmax.vf v8, v16, fa0
     SET_TEST_NUM 7
     la t1, result_buf
-    vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc7_exp, 32
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc7_exp, 16
     SET_TEST_NUM 8
+    la t1, witness_buf
+    vse32.v v24, (t1)
+    CHECK_MEM witness_buf, tc7_w, 16
+    SET_TEST_NUM 9
     CHECK_CSRS_UNCHANGED_FP
 
-    /* Test 9-10: vfmax.vf SEW=64 zero */
+    /* Test 10-12: vfmax.vf SEW=32 basic (vd=vs2) */
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc10_s2
+    vle32.v v8, (t1)
+    la t1, tc10_fsc
+    flw fa0, 0(t1)
+    la t1, tc10_w
+    vle32.v v24, (t1)
+    SAVE_CSRS
+    vfmax.vf v8, v8, fa0
+    SET_TEST_NUM 10
+    la t1, result_buf
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc10_exp, 16
+    SET_TEST_NUM 11
+    la t1, witness_buf
+    vse32.v v24, (t1)
+    CHECK_MEM witness_buf, tc10_w, 16
+    SET_TEST_NUM 12
+    CHECK_CSRS_UNCHANGED_FP
+
+    /* Test 13-15: vfmax.vf SEW=32 basic (masked) */
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc13_s2
+    vle32.v v16, (t1)
+    la t1, tc13_fsc
+    flw fa0, 0(t1)
+    la t1, tc13_vd
+    vle32.v v8, (t1)
+    la t1, tc13_mask
+    vlm.v v0, (t1)
+    la t1, tc13_w
+    vle32.v v24, (t1)
+    SAVE_CSRS
+    vfmax.vf v8, v16, fa0, v0.t
+    SET_TEST_NUM 13
+    la t1, result_buf
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc13_exp, 16
+    SET_TEST_NUM 14
+    la t1, witness_buf
+    vse32.v v24, (t1)
+    CHECK_MEM witness_buf, tc13_w, 16
+    SET_TEST_NUM 15
+    CHECK_CSRS_UNCHANGED_FP
+
+    /* Test 16-18: vfmax.vf SEW=64 basic */
     li t0, 4
     vsetvli t0, t0, e64, m1, tu, mu
-    la t1, tc9_s2
+    la t1, tc16_s2
     vle64.v v16, (t1)
-    la t1, tc9_fsc
+    la t1, tc16_fsc
     fld fa0, 0(t1)
+    la t1, tc16_w
+    vle64.v v24, (t1)
     SAVE_CSRS
     vfmax.vf v8, v16, fa0
-    SET_TEST_NUM 9
+    SET_TEST_NUM 16
     la t1, result_buf
     vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc9_exp, 32
-    SET_TEST_NUM 10
+    CHECK_MEM result_buf, tc16_exp, 32
+    SET_TEST_NUM 17
+    la t1, witness_buf
+    vse64.v v24, (t1)
+    CHECK_MEM witness_buf, tc16_w, 32
+    SET_TEST_NUM 18
+    CHECK_CSRS_UNCHANGED_FP
+
+    /* Test 19-21: vfmax.vf SEW=64 zero */
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    la t1, tc19_s2
+    vle64.v v16, (t1)
+    la t1, tc19_fsc
+    fld fa0, 0(t1)
+    la t1, tc19_w
+    vle64.v v24, (t1)
+    SAVE_CSRS
+    vfmax.vf v8, v16, fa0
+    SET_TEST_NUM 19
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc19_exp, 32
+    SET_TEST_NUM 20
+    la t1, witness_buf
+    vse64.v v24, (t1)
+    CHECK_MEM witness_buf, tc19_w, 32
+    SET_TEST_NUM 21
     CHECK_CSRS_UNCHANGED_FP
 
     PASS_TEST
@@ -108,34 +197,67 @@ tc1_fsc:
     .word 0x41200000
 tc1_exp:
     .word 0x41200000, 0x41200000, 0x41200000, 0x41200000
+tc1_w:
+    .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
 .align 2
-tc3_s2:
+tc4_s2:
     .word 0x3f800000, 0x40000000, 0x40400000, 0x40800000
-tc3_fsc:
+tc4_fsc:
     .word 0x00000000
-tc3_exp:
+tc4_exp:
     .word 0x3f800000, 0x40000000, 0x40400000, 0x40800000
+tc4_w:
+    .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
 .align 2
-tc5_s2:
-    .word 0x3f800000, 0x40000000, 0x40400000, 0x40800000
-tc5_fsc:
-    .word 0xbf800000
-tc5_exp:
-    .word 0x3f800000, 0x40000000, 0x40400000, 0x40800000
-.align 3
 tc7_s2:
-    .dword 0x3ff0000000000000, 0x4000000000000000, 0x4008000000000000, 0x4010000000000000
+    .word 0x3f800000, 0x40000000, 0x40400000, 0x40800000
 tc7_fsc:
-    .dword 0x4024000000000000
+    .word 0xbf800000
 tc7_exp:
-    .dword 0x4024000000000000, 0x4024000000000000, 0x4024000000000000, 0x4024000000000000
+    .word 0x3f800000, 0x40000000, 0x40400000, 0x40800000
+tc7_w:
+    .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
+.align 2
+tc10_s2:
+    .word 0x3f800000, 0x40000000, 0x40400000, 0x40800000
+tc10_fsc:
+    .word 0x41200000
+tc10_exp:
+    .word 0x41200000, 0x41200000, 0x41200000, 0x41200000
+tc10_w:
+    .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
+.align 1
+tc13_mask:
+    .byte 10
+.align 2
+tc13_s2:
+    .word 0x3f800000, 0x40000000, 0x40400000, 0x40800000
+tc13_fsc:
+    .word 0x41200000
+tc13_vd:
+    .word 0x42c80000, 0x42c80000, 0x42c80000, 0x42c80000
+tc13_exp:
+    .word 0x42c80000, 0x41200000, 0x42c80000, 0x41200000
+tc13_w:
+    .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
 .align 3
-tc9_s2:
+tc16_s2:
     .dword 0x3ff0000000000000, 0x4000000000000000, 0x4008000000000000, 0x4010000000000000
-tc9_fsc:
+tc16_fsc:
+    .dword 0x4024000000000000
+tc16_exp:
+    .dword 0x4024000000000000, 0x4024000000000000, 0x4024000000000000, 0x4024000000000000
+tc16_w:
+    .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
+.align 3
+tc19_s2:
+    .dword 0x3ff0000000000000, 0x4000000000000000, 0x4008000000000000, 0x4010000000000000
+tc19_fsc:
     .dword 0x0000000000000000
-tc9_exp:
+tc19_exp:
     .dword 0x3ff0000000000000, 0x4000000000000000, 0x4008000000000000, 0x4010000000000000
+tc19_w:
+    .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
 
 .align 4
 result_buf:  .space 256

@@ -15,7 +15,7 @@ from ..common import (
     f32_to_bits, f64_to_bits, bits_to_f32, bits_to_f64,
 )
 from ..testfile import TestFile
-from ..emit import VREG_DST, VREG_SRC2, VREG_SRC1
+from ..emit import VREG_DST, VREG_SRC2, VREG_SRC1, emit_widening_vv_masked
 from ..compute.floating_point import (
     fwadd, fwsub, fwmul, fwadd_w, fwsub_w,
     fwmacc, fwnmacc, fwmsac, fwnmsac,
@@ -98,18 +98,38 @@ def generate(base_dir: Path) -> list[str]:
             tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
             tf.code("SAVE_CSRS")
             tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}")
+            cn_csr = tf.next_check(f"{mnemonic} {name}: CSR side-effect")
+            tf.code(f"SET_TEST_NUM {cn_csr}")
+            tf.code("CHECK_CSRS_UNCHANGED_FP")
             tf.code(f"SET_TEST_NUM {cn}")
+            tf.code(f"li t0, {NUM_ELEMS}")
             tf.code(f"vsetvli t0, t0, e{dsew}, m2, tu, mu")
             tf.code(f"la t1, result_buf")
             tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
             tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-            tf.code("CHECK_VSTART_ZERO")
-            tf.code("CHECK_FCSR_UNCHANGED")
 
             tf.data_align(dsew)
             tf.data_label(f"{tag}_s2", format_data_line(s2, sew))
             tf.data_label(f"{tag}_s1", format_data_line(s1, sew))
             tf.data_label(f"{tag}_exp", format_data_line(exp, dsew))
+
+        # Masked widening VV test
+        s2_m = [f32_to_bits(1.0), f32_to_bits(2.0),
+                f32_to_bits(3.0), f32_to_bits(4.0)]
+        s1_m = [f32_to_bits(0.5), f32_to_bits(0.25),
+                f32_to_bits(0.125), f32_to_bits(0.0625)]
+        vd_init_m = [f64_to_bits(999.0)] * 4
+        mask_bits = 0b1010
+        exp_full = [cfn(a, b, sew) for a, b in zip(s2_m, s1_m)]
+        exp_masked = [
+            exp_full[i] if (mask_bits >> i) & 1 else vd_init_m[i]
+            for i in range(4)
+        ]
+        emit_widening_vv_masked(
+            tf, mnemonic, sew, "basic",
+            s2_m, s1_m, vd_init_m, mask_bits, exp_masked,
+            csr_check="CHECK_CSRS_UNCHANGED_FP",
+        )
         tf.write(fpath)
         generated.append(str(fpath))
 
@@ -140,13 +160,15 @@ def generate(base_dir: Path) -> list[str]:
             tf.code(f"flw fa0, 0(t1)")
             tf.code("SAVE_CSRS")
             tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}, fa0")
+            cn_csr = tf.next_check(f"{mnemonic} {name}: CSR side-effect")
+            tf.code(f"SET_TEST_NUM {cn_csr}")
+            tf.code("CHECK_CSRS_UNCHANGED_FP")
             tf.code(f"SET_TEST_NUM {cn}")
+            tf.code(f"li t0, {NUM_ELEMS}")
             tf.code(f"vsetvli t0, t0, e{dsew}, m2, tu, mu")
             tf.code(f"la t1, result_buf")
             tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
             tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-            tf.code("CHECK_VSTART_ZERO")
-            tf.code("CHECK_FCSR_UNCHANGED")
 
             tf.data_align(dsew)
             tf.data_label(f"{tag}_s2", format_data_line(s2, sew))
@@ -194,13 +216,15 @@ def generate(base_dir: Path) -> list[str]:
             tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
             tf.code("SAVE_CSRS")
             tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}")
+            cn_csr = tf.next_check(f"{mnemonic} {name}: CSR side-effect")
+            tf.code(f"SET_TEST_NUM {cn_csr}")
+            tf.code("CHECK_CSRS_UNCHANGED_FP")
             tf.code(f"SET_TEST_NUM {cn}")
+            tf.code(f"li t0, {NUM_ELEMS}")
             tf.code(f"vsetvli t0, t0, e{dsew}, m2, tu, mu")
             tf.code(f"la t1, result_buf")
             tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
             tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-            tf.code("CHECK_VSTART_ZERO")
-            tf.code("CHECK_FCSR_UNCHANGED")
 
             tf.data_align(dsew)
             tf.data_label(f"{tag}_s2w", format_data_line(s2_wide, dsew))
@@ -242,13 +266,15 @@ def generate(base_dir: Path) -> list[str]:
             tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
             tf.code("SAVE_CSRS")
             tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC1}, {VREG_SRC2}")
+            cn_csr = tf.next_check(f"{mnemonic} {name}: CSR side-effect")
+            tf.code(f"SET_TEST_NUM {cn_csr}")
+            tf.code("CHECK_CSRS_UNCHANGED_FP")
             tf.code(f"SET_TEST_NUM {cn}")
+            tf.code(f"li t0, {NUM_ELEMS}")
             tf.code(f"vsetvli t0, t0, e{dsew}, m2, tu, mu")
             tf.code(f"la t1, result_buf")
             tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
             tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-            tf.code("CHECK_VSTART_ZERO")
-            tf.code("CHECK_FCSR_UNCHANGED")
 
             tf.data_align(dsew)
             tf.data_label(f"{tag}_vd", format_data_line(vd_init, dsew))
@@ -302,13 +328,15 @@ def generate(base_dir: Path) -> list[str]:
             tf.code(f"flw fa0, 0(t1)")
             tf.code("SAVE_CSRS")
             tf.code(f"{mnemonic} {VREG_DST}, fa0, {VREG_SRC2}")
+            cn_csr = tf.next_check(f"{mnemonic} {name}: CSR side-effect")
+            tf.code(f"SET_TEST_NUM {cn_csr}")
+            tf.code("CHECK_CSRS_UNCHANGED_FP")
             tf.code(f"SET_TEST_NUM {cn}")
+            tf.code(f"li t0, {NUM_ELEMS}")
             tf.code(f"vsetvli t0, t0, e{dsew}, m2, tu, mu")
             tf.code(f"la t1, result_buf")
             tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
             tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-            tf.code("CHECK_VSTART_ZERO")
-            tf.code("CHECK_FCSR_UNCHANGED")
 
             tf.data_align(dsew)
             tf.data_label(f"{tag}_vd", format_data_line(vd_init, dsew))
@@ -356,13 +384,15 @@ def generate(base_dir: Path) -> list[str]:
             tf.code(f"flw fa0, 0(t1)")
             tf.code("SAVE_CSRS")
             tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}, fa0")
+            cn_csr = tf.next_check(f"{mnemonic} {name}: CSR side-effect")
+            tf.code(f"SET_TEST_NUM {cn_csr}")
+            tf.code("CHECK_CSRS_UNCHANGED_FP")
             tf.code(f"SET_TEST_NUM {cn}")
+            tf.code(f"li t0, {NUM_ELEMS}")
             tf.code(f"vsetvli t0, t0, e{dsew}, m2, tu, mu")
             tf.code(f"la t1, result_buf")
             tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
             tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-            tf.code("CHECK_VSTART_ZERO")
-            tf.code("CHECK_FCSR_UNCHANGED")
 
             tf.data_align(dsew)
             tf.data_label(f"{tag}_s2w", format_data_line(s2_wide, dsew))
@@ -405,13 +435,15 @@ def generate(base_dir: Path) -> list[str]:
         tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
         tf.code("SAVE_CSRS")
         tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}")
+        cn_csr = tf.next_check(f"{mnemonic}: CSR side-effect")
+        tf.code(f"SET_TEST_NUM {cn_csr}")
+        tf.code("CHECK_CSRS_UNCHANGED_FP")
         tf.code(f"SET_TEST_NUM {cn}")
+        tf.code(f"li t0, {NUM_ELEMS}")
         tf.code(f"vsetvli t0, t0, e{dsew}, m2, tu, mu")
         tf.code(f"la t1, result_buf")
         tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
         tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-        tf.code("CHECK_VSTART_ZERO")
-        tf.code("CHECK_FCSR_UNCHANGED")
 
         tf.data_align(dsew)
         tf.data_label(f"{tag}_src", format_data_line(src, sew))
@@ -462,8 +494,7 @@ def generate(base_dir: Path) -> list[str]:
         tf.code(f"la t1, result_buf")
         tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
         tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-        tf.code("CHECK_VSTART_ZERO")
-        tf.code("CHECK_FCSR_UNCHANGED")
+        tf.code("CHECK_CSRS_UNCHANGED_FP")
 
         tf.data_align(dsew)
         tf.data_label(f"{tag}_src", format_data_line(src, dsew))

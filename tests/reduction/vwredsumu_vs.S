@@ -4,14 +4,23 @@
  * Exit code 0 = PASS
  * Exit code N = check N failed:
  *     1 = vwredsumu.vs e8 basic: result
- *     2 = vwredsumu.vs e8 init: result
- *     3 = vwredsumu.vs e8 max: result
- *     4 = vwredsumu.vs e16 basic: result
- *     5 = vwredsumu.vs e16 init: result
- *     6 = vwredsumu.vs e16 max: result
- *     7 = vwredsumu.vs e32 basic: result
- *     8 = vwredsumu.vs e32 init: result
- *     9 = vwredsumu.vs e32 max: result
+ *     2 = vwredsumu.vs e8 basic: CSR side-effect
+ *     3 = vwredsumu.vs e8 init: result
+ *     4 = vwredsumu.vs e8 init: CSR side-effect
+ *     5 = vwredsumu.vs e8 max: result
+ *     6 = vwredsumu.vs e8 max: CSR side-effect
+ *     7 = vwredsumu.vs e16 basic: result
+ *     8 = vwredsumu.vs e16 basic: CSR side-effect
+ *     9 = vwredsumu.vs e16 init: result
+ *    10 = vwredsumu.vs e16 init: CSR side-effect
+ *    11 = vwredsumu.vs e16 max: result
+ *    12 = vwredsumu.vs e16 max: CSR side-effect
+ *    13 = vwredsumu.vs e32 basic: result
+ *    14 = vwredsumu.vs e32 basic: CSR side-effect
+ *    15 = vwredsumu.vs e32 init: result
+ *    16 = vwredsumu.vs e32 init: CSR side-effect
+ *    17 = vwredsumu.vs e32 max: result
+ *    18 = vwredsumu.vs e32 max: CSR side-effect
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -28,32 +37,16 @@
     vsetvli t0, t0, e8, m1, tu, mu
     SAVE_CSRS
     vwredsumu.vs v8, v16, v20
+    SET_TEST_NUM 2
+    CHECK_CSRS_UNCHANGED
     SET_TEST_NUM 1
+    li t0, 4
     vsetvli t0, t0, e16, m1, tu, mu
     la t1, result_buf
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc1_exp, 2
-    CHECK_VSTART_ZERO
 
-    /* Test 2: vwredsumu.vs SEW=8 init */
-    li t0, 4
-    vsetvli t0, t0, e8, m1, tu, mu
-    la t1, tc2_vec
-    vle8.v v16, (t1)
-    vsetvli t0, t0, e16, m1, tu, mu
-    la t1, tc2_init
-    vle16.v v20, (t1)
-    vsetvli t0, t0, e8, m1, tu, mu
-    SAVE_CSRS
-    vwredsumu.vs v8, v16, v20
-    SET_TEST_NUM 2
-    vsetvli t0, t0, e16, m1, tu, mu
-    la t1, result_buf
-    vse16.v v8, (t1)
-    CHECK_MEM result_buf, tc2_exp, 2
-    CHECK_VSTART_ZERO
-
-    /* Test 3: vwredsumu.vs SEW=8 max */
+    /* Test 3: vwredsumu.vs SEW=8 init */
     li t0, 4
     vsetvli t0, t0, e8, m1, tu, mu
     la t1, tc3_vec
@@ -64,120 +57,154 @@
     vsetvli t0, t0, e8, m1, tu, mu
     SAVE_CSRS
     vwredsumu.vs v8, v16, v20
+    SET_TEST_NUM 4
+    CHECK_CSRS_UNCHANGED
     SET_TEST_NUM 3
+    li t0, 4
     vsetvli t0, t0, e16, m1, tu, mu
     la t1, result_buf
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc3_exp, 2
-    CHECK_VSTART_ZERO
 
-    /* Test 4: vwredsumu.vs SEW=16 basic */
+    /* Test 5: vwredsumu.vs SEW=8 max */
     li t0, 4
-    vsetvli t0, t0, e16, m1, tu, mu
-    la t1, tc4_vec
-    vle16.v v16, (t1)
-    vsetvli t0, t0, e32, m1, tu, mu
-    la t1, tc4_init
-    vle32.v v20, (t1)
-    vsetvli t0, t0, e16, m1, tu, mu
-    SAVE_CSRS
-    vwredsumu.vs v8, v16, v20
-    SET_TEST_NUM 4
-    vsetvli t0, t0, e32, m1, tu, mu
-    la t1, result_buf
-    vse32.v v8, (t1)
-    CHECK_MEM result_buf, tc4_exp, 4
-    CHECK_VSTART_ZERO
-
-    /* Test 5: vwredsumu.vs SEW=16 init */
-    li t0, 4
-    vsetvli t0, t0, e16, m1, tu, mu
+    vsetvli t0, t0, e8, m1, tu, mu
     la t1, tc5_vec
-    vle16.v v16, (t1)
-    vsetvli t0, t0, e32, m1, tu, mu
+    vle8.v v16, (t1)
+    vsetvli t0, t0, e16, m1, tu, mu
     la t1, tc5_init
-    vle32.v v20, (t1)
-    vsetvli t0, t0, e16, m1, tu, mu
-    SAVE_CSRS
-    vwredsumu.vs v8, v16, v20
-    SET_TEST_NUM 5
-    vsetvli t0, t0, e32, m1, tu, mu
-    la t1, result_buf
-    vse32.v v8, (t1)
-    CHECK_MEM result_buf, tc5_exp, 4
-    CHECK_VSTART_ZERO
-
-    /* Test 6: vwredsumu.vs SEW=16 max */
-    li t0, 4
-    vsetvli t0, t0, e16, m1, tu, mu
-    la t1, tc6_vec
-    vle16.v v16, (t1)
-    vsetvli t0, t0, e32, m1, tu, mu
-    la t1, tc6_init
-    vle32.v v20, (t1)
-    vsetvli t0, t0, e16, m1, tu, mu
+    vle16.v v20, (t1)
+    vsetvli t0, t0, e8, m1, tu, mu
     SAVE_CSRS
     vwredsumu.vs v8, v16, v20
     SET_TEST_NUM 6
-    vsetvli t0, t0, e32, m1, tu, mu
-    la t1, result_buf
-    vse32.v v8, (t1)
-    CHECK_MEM result_buf, tc6_exp, 4
-    CHECK_VSTART_ZERO
-
-    /* Test 7: vwredsumu.vs SEW=32 basic */
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 5
     li t0, 4
-    vsetvli t0, t0, e32, m1, tu, mu
+    vsetvli t0, t0, e16, m1, tu, mu
+    la t1, result_buf
+    vse16.v v8, (t1)
+    CHECK_MEM result_buf, tc5_exp, 2
+
+    /* Test 7: vwredsumu.vs SEW=16 basic */
+    li t0, 4
+    vsetvli t0, t0, e16, m1, tu, mu
     la t1, tc7_vec
-    vle32.v v16, (t1)
-    vsetvli t0, t0, e64, m1, tu, mu
+    vle16.v v16, (t1)
+    vsetvli t0, t0, e32, m1, tu, mu
     la t1, tc7_init
-    vle64.v v20, (t1)
-    vsetvli t0, t0, e32, m1, tu, mu
-    SAVE_CSRS
-    vwredsumu.vs v8, v16, v20
-    SET_TEST_NUM 7
-    vsetvli t0, t0, e64, m1, tu, mu
-    la t1, result_buf
-    vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc7_exp, 8
-    CHECK_VSTART_ZERO
-
-    /* Test 8: vwredsumu.vs SEW=32 init */
-    li t0, 4
-    vsetvli t0, t0, e32, m1, tu, mu
-    la t1, tc8_vec
-    vle32.v v16, (t1)
-    vsetvli t0, t0, e64, m1, tu, mu
-    la t1, tc8_init
-    vle64.v v20, (t1)
-    vsetvli t0, t0, e32, m1, tu, mu
+    vle32.v v20, (t1)
+    vsetvli t0, t0, e16, m1, tu, mu
     SAVE_CSRS
     vwredsumu.vs v8, v16, v20
     SET_TEST_NUM 8
-    vsetvli t0, t0, e64, m1, tu, mu
-    la t1, result_buf
-    vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc8_exp, 8
-    CHECK_VSTART_ZERO
-
-    /* Test 9: vwredsumu.vs SEW=32 max */
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 7
     li t0, 4
     vsetvli t0, t0, e32, m1, tu, mu
+    la t1, result_buf
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc7_exp, 4
+
+    /* Test 9: vwredsumu.vs SEW=16 init */
+    li t0, 4
+    vsetvli t0, t0, e16, m1, tu, mu
     la t1, tc9_vec
+    vle16.v v16, (t1)
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc9_init
+    vle32.v v20, (t1)
+    vsetvli t0, t0, e16, m1, tu, mu
+    SAVE_CSRS
+    vwredsumu.vs v8, v16, v20
+    SET_TEST_NUM 10
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 9
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, result_buf
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc9_exp, 4
+
+    /* Test 11: vwredsumu.vs SEW=16 max */
+    li t0, 4
+    vsetvli t0, t0, e16, m1, tu, mu
+    la t1, tc11_vec
+    vle16.v v16, (t1)
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc11_init
+    vle32.v v20, (t1)
+    vsetvli t0, t0, e16, m1, tu, mu
+    SAVE_CSRS
+    vwredsumu.vs v8, v16, v20
+    SET_TEST_NUM 12
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 11
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, result_buf
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc11_exp, 4
+
+    /* Test 13: vwredsumu.vs SEW=32 basic */
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc13_vec
     vle32.v v16, (t1)
     vsetvli t0, t0, e64, m1, tu, mu
-    la t1, tc9_init
+    la t1, tc13_init
     vle64.v v20, (t1)
     vsetvli t0, t0, e32, m1, tu, mu
     SAVE_CSRS
     vwredsumu.vs v8, v16, v20
-    SET_TEST_NUM 9
+    SET_TEST_NUM 14
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 13
+    li t0, 4
     vsetvli t0, t0, e64, m1, tu, mu
     la t1, result_buf
     vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc9_exp, 8
-    CHECK_VSTART_ZERO
+    CHECK_MEM result_buf, tc13_exp, 8
+
+    /* Test 15: vwredsumu.vs SEW=32 init */
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc15_vec
+    vle32.v v16, (t1)
+    vsetvli t0, t0, e64, m1, tu, mu
+    la t1, tc15_init
+    vle64.v v20, (t1)
+    vsetvli t0, t0, e32, m1, tu, mu
+    SAVE_CSRS
+    vwredsumu.vs v8, v16, v20
+    SET_TEST_NUM 16
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 15
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc15_exp, 8
+
+    /* Test 17: vwredsumu.vs SEW=32 max */
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc17_vec
+    vle32.v v16, (t1)
+    vsetvli t0, t0, e64, m1, tu, mu
+    la t1, tc17_init
+    vle64.v v20, (t1)
+    vsetvli t0, t0, e32, m1, tu, mu
+    SAVE_CSRS
+    vwredsumu.vs v8, v16, v20
+    SET_TEST_NUM 18
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 17
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc17_exp, 8
 
     PASS_TEST
 
@@ -190,60 +217,60 @@ tc1_init:
 tc1_exp:
     .half 0x000a, 0x0000, 0x0000, 0x0000
 .align 1
-tc2_vec:
+tc3_vec:
     .byte 0x01, 0x02, 0x03, 0x04
-tc2_init:
+tc3_init:
     .half 0x0064, 0x0000, 0x0000, 0x0000
-tc2_exp:
+tc3_exp:
     .half 0x006e, 0x0000, 0x0000, 0x0000
 .align 1
-tc3_vec:
+tc5_vec:
     .byte 0xff, 0xff, 0xff, 0xff
-tc3_init:
+tc5_init:
     .half 0x0000, 0x0000, 0x0000, 0x0000
-tc3_exp:
+tc5_exp:
     .half 0x03fc, 0x0000, 0x0000, 0x0000
 .align 2
-tc4_vec:
+tc7_vec:
     .half 0x0001, 0x0002, 0x0003, 0x0004
-tc4_init:
+tc7_init:
     .word 0x00000000, 0x00000000, 0x00000000, 0x00000000
-tc4_exp:
+tc7_exp:
     .word 0x0000000a, 0x00000000, 0x00000000, 0x00000000
 .align 2
-tc5_vec:
+tc9_vec:
     .half 0x0001, 0x0002, 0x0003, 0x0004
-tc5_init:
+tc9_init:
     .word 0x00000064, 0x00000000, 0x00000000, 0x00000000
-tc5_exp:
+tc9_exp:
     .word 0x0000006e, 0x00000000, 0x00000000, 0x00000000
 .align 2
-tc6_vec:
+tc11_vec:
     .half 0xffff, 0xffff, 0xffff, 0xffff
-tc6_init:
+tc11_init:
     .word 0x00000000, 0x00000000, 0x00000000, 0x00000000
-tc6_exp:
+tc11_exp:
     .word 0x0003fffc, 0x00000000, 0x00000000, 0x00000000
 .align 3
-tc7_vec:
+tc13_vec:
     .word 0x00000001, 0x00000002, 0x00000003, 0x00000004
-tc7_init:
+tc13_init:
     .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
-tc7_exp:
+tc13_exp:
     .dword 0x000000000000000a, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
 .align 3
-tc8_vec:
+tc15_vec:
     .word 0x00000001, 0x00000002, 0x00000003, 0x00000004
-tc8_init:
+tc15_init:
     .dword 0x0000000000000064, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
-tc8_exp:
+tc15_exp:
     .dword 0x000000000000006e, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
 .align 3
-tc9_vec:
+tc17_vec:
     .word 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff
-tc9_init:
+tc17_init:
     .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
-tc9_exp:
+tc17_exp:
     .dword 0x00000003fffffffc, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
 
 .align 4

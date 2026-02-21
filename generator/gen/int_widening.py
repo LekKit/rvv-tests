@@ -11,7 +11,7 @@ from typing import Callable
 
 from ..common import WIDENING_SEWS, SEWS, M, U
 from ..testfile import TestFile
-from ..emit import emit_widening_vv, emit_binop_vv
+from ..emit import emit_widening_vv, emit_widening_vv_masked, emit_binop_vv
 from ..vectors import widening_vv, widening_wv, narrowing_wv
 from ..compute.integer import (
     waddu, wadd, wsubu, wsub,
@@ -56,6 +56,22 @@ def generate(base_dir: Path) -> list[str]:
             for name, s2, s1 in widening_vv(sew):
                 exp = [cfn(a, b, sew) for a, b in zip(s2, s1)]
                 emit_widening_vv(tf, mnemonic, sew, name, s2, s1, exp)
+
+            # Masked widening at sew == 16 only
+            if sew == 16:
+                s2_m = [1, 2, 3, 4]
+                s1_m = [5, 6, 7, 8]
+                vd_init_m = [0xDEAD] * 4  # at dsew (32-bit)
+                mask_bits = 0b1010
+                exp_full = [cfn(a, b, sew) for a, b in zip(s2_m, s1_m)]
+                exp_masked = [
+                    exp_full[i] if (mask_bits >> i) & 1 else vd_init_m[i]
+                    for i in range(4)
+                ]
+                emit_widening_vv_masked(
+                    tf, mnemonic, sew, "basic",
+                    s2_m, s1_m, vd_init_m, mask_bits, exp_masked,
+                )
         fpath = out / fname
         tf.write(fpath)
         generated.append(str(fpath))
@@ -77,10 +93,11 @@ def generate(base_dir: Path) -> list[str]:
                 exp = [cfn(a, sc, sew) for a in vec]
                 nbytes = NUM_ELEMS * (dsew // 8)
                 cn_res = tf.next_check(f"{mn_vx} e{sew} {name}: result")
+                cn_csr = tf.next_check(f"{mn_vx} e{sew} {name}: CSR side-effect")
                 tag = f"tc{cn_res}"
 
                 tf.blank()
-                tf.comment(f"Test {cn_res}: {mn_vx} SEW={sew} {name}")
+                tf.comment(f"Test {cn_res}-{cn_csr}: {mn_vx} SEW={sew} {name}")
                 tf.code(f"li t0, {NUM_ELEMS}")
                 tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
                 tf.code(f"la t1, {tag}_s2")
@@ -88,12 +105,15 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"li a0, {format_hex(sc, sew)}")
                 tf.code("SAVE_CSRS")
                 tf.code(f"{mn_vx} {VREG_DST}, {VREG_SRC2}, a0")
+                # Check CSRs before vsetvli changes vl/vtype
+                tf.code(f"SET_TEST_NUM {cn_csr}")
+                tf.code("CHECK_CSRS_UNCHANGED")
                 tf.code(f"SET_TEST_NUM {cn_res}")
+                tf.code(f"li t0, {NUM_ELEMS}")
                 tf.code(f"vsetvli t0, t0, e{dsew}, m2, tu, mu")
                 tf.code(f"la t1, result_buf")
                 tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-                tf.code("CHECK_VSTART_ZERO")
 
                 tf.data_align(dsew)
                 tf.data_label(f"{tag}_s2", format_data_line(vec, sew))
@@ -115,10 +135,11 @@ def generate(base_dir: Path) -> list[str]:
                 from ..emit import VREG_DST, VREG_SRC2, VREG_SRC1
                 nbytes = NUM_ELEMS * (dsew // 8)
                 cn_res = tf.next_check(f"{mnemonic} e{sew} {name}: result")
+                cn_csr = tf.next_check(f"{mnemonic} e{sew} {name}: CSR side-effect")
                 tag = f"tc{cn_res}"
 
                 tf.blank()
-                tf.comment(f"Test {cn_res}: {mnemonic} SEW={sew} {name}")
+                tf.comment(f"Test {cn_res}-{cn_csr}: {mnemonic} SEW={sew} {name}")
                 # Load wide source (2*SEW)
                 tf.code(f"li t0, {NUM_ELEMS}")
                 tf.code(f"vsetvli t0, t0, e{dsew}, m2, tu, mu")
@@ -130,12 +151,15 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
                 tf.code("SAVE_CSRS")
                 tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}")
+                # Check CSRs before vsetvli changes vl/vtype
+                tf.code(f"SET_TEST_NUM {cn_csr}")
+                tf.code("CHECK_CSRS_UNCHANGED")
                 tf.code(f"SET_TEST_NUM {cn_res}")
+                tf.code(f"li t0, {NUM_ELEMS}")
                 tf.code(f"vsetvli t0, t0, e{dsew}, m2, tu, mu")
                 tf.code(f"la t1, result_buf")
                 tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-                tf.code("CHECK_VSTART_ZERO")
 
                 tf.data_align(dsew)
                 tf.data_label(f"{tag}_s2w", format_data_line(s2_wide, dsew))
@@ -177,7 +201,7 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"la t1, result_buf")
                 tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-                tf.code("CHECK_VSTART_ZERO")
+                tf.code("CHECK_CSRS_UNCHANGED")
 
                 tf.data_align(dsew)
                 tf.data_label(f"{tag}_s2w", format_data_line(s2_wide, dsew))
@@ -218,7 +242,7 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"la t1, result_buf")
                 tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-                tf.code("CHECK_VSTART_ZERO")
+                tf.code("CHECK_CSRS_UNCHANGED")
 
                 tf.data_align(dsew)
                 tf.data_label(f"{tag}_s2w", format_data_line(s2_wide, dsew))
@@ -256,7 +280,7 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"la t1, result_buf")
                 tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-                tf.code("CHECK_VSTART_ZERO")
+                tf.code("CHECK_CSRS_UNCHANGED")
 
                 tf.data_align(dsew)
                 tf.data_label(f"{tag}_s2w", format_data_line(s2_wide, dsew))
@@ -282,6 +306,7 @@ def generate(base_dir: Path) -> list[str]:
                 nbytes = NUM_ELEMS * (dsew // 8)
                 name = f"sc_{format_hex(U(sc, sew), sew)}"
                 cn_res = tf.next_check(f"{mn_wx} e{sew} {name}: result")
+                cn_csr = tf.next_check(f"{mn_wx} e{sew} {name}: CSR side-effect")
                 tag = f"tc{cn_res}"
 
                 tf.blank()
@@ -293,12 +318,15 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"li a0, {format_hex(sc, sew)}")
                 tf.code("SAVE_CSRS")
                 tf.code(f"{mn_wx} {VREG_DST}, {VREG_SRC2}, a0")
+                # Check CSRs before vsetvli changes vl/vtype
+                tf.code(f"SET_TEST_NUM {cn_csr}")
+                tf.code("CHECK_CSRS_UNCHANGED")
                 tf.code(f"SET_TEST_NUM {cn_res}")
+                tf.code(f"li t0, {NUM_ELEMS}")
                 tf.code(f"vsetvli t0, t0, e{dsew}, m2, tu, mu")
                 tf.code(f"la t1, result_buf")
                 tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
-                tf.code("CHECK_VSTART_ZERO")
 
                 tf.data_align(dsew)
                 tf.data_label(f"{tag}_s2w", format_data_line(s2_wide, dsew))

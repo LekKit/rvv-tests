@@ -4,6 +4,7 @@
  * Exit code 0 = PASS
  * Exit code N = check N failed:
  *     1 = vfwredusum.vs: result
+ *     2 = vfwredusum.vs: CSR side-effect
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -18,13 +19,14 @@
     vsetvli t0, t0, e32, m1, tu, mu
     SAVE_CSRS
     vfwredusum.vs v8, v16, v20
+    SET_TEST_NUM 2
+    CHECK_CSRS_UNCHANGED_FP
     SET_TEST_NUM 1
+    li t0, 4
     vsetvli t0, t0, e64, m1, tu, mu
     la t1, result_buf
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc1_exp, 8
-    CHECK_VSTART_ZERO
-    CHECK_FCSR_UNCHANGED
 
     PASS_TEST
 

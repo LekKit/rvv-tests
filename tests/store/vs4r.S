@@ -17,7 +17,7 @@
     vs4r.v v8, (t1)
     SET_TEST_NUM 1
     CHECK_MEM result_buf, tc1_data, 16
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     PASS_TEST
 

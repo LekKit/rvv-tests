@@ -27,7 +27,7 @@
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc1_exp, 32
     SET_TEST_NUM 2
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 3-4: vsext.vf8 e8→e64 max */
     li t0, 4
@@ -42,7 +42,7 @@
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc3_exp, 32
     SET_TEST_NUM 4
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     /* Test 5-6: vsext.vf8 e8→e64 high */
     li t0, 4
@@ -57,7 +57,7 @@
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc5_exp, 32
     SET_TEST_NUM 6
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     PASS_TEST
 

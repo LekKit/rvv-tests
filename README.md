@@ -6,19 +6,23 @@ These tests are 100% vibecoded.
 
 ## Overview
 
-628 standalone assembly tests covering all RVV 1.0 instruction mnemonics. Each test is a static binary (no libc) that exits with code 0 on success or a nonzero check number identifying the first failed verification.
+642 standalone assembly tests covering all RVV 1.0 instruction mnemonics. Each test is a static binary (no libc) that exits with code 0 on success or a nonzero check number identifying the first failed verification.
 
 Tests verify:
 - Correct instruction output for known inputs across all supported SEW widths
 - No side effects on unrelated V-extension state (vstart, vxsat, vxrm, vl, vtype, fcsr)
 - No corruption of bystander vector registers
+- Tail-undisturbed policy (elements >= vl preserved) up to full VLEN/8 bytes
+- LMUL>1 register boundary crossing correctness
+- vl=0 no-op behavior (integer, FP, load, store)
+- Fault-only-first load semantics via mmap/munmap page boundary
 
 ### Instruction families covered
 
 | Family | Tests | Mnemonics |
 |--------|-------|-----------|
 | Configuration | 1 | vsetvli, vsetivli, vsetvl |
-| Unit-stride load/store | 41 | vle/vse/vlse/vsse/vlm/vl*re/vs*r/vle*ff |
+| Unit-stride load/store | 42 | vle/vse/vlse/vsse/vlm/vl*re/vs*r/vle*ff |
 | Indexed load/store | 16 | vluxei/vloxei/vsuxei/vsoxei |
 | Segment load/store | 252 | vlseg/vsseg/vlsseg/vssseg/vluxseg/vloxseg/vsuxseg/vsoxseg/vlseg*ff |
 | Integer arithmetic | 49 | vadd/vsub/vrsub/vand/vor/vxor/shifts/minmax/mul/div |
@@ -33,6 +37,7 @@ Tests verify:
 | Reductions | 16 | vredsum/vredmax/vfredosum/vfwredosum/... |
 | Mask operations | 15 | vmand*/vcpop/vfirst/vid/viota/vmsbf/vmsif/vmsof |
 | Permutation | 29 | vslide*/vrgather*/vcompress/vmv*/vfmv*/vmv*r |
+| Edge cases | 13 | vl=0 no-op, tail undisturbed (full-VLMAX), LMUL>1 boundary, vle32ff fault |
 
 ## Building and running
 
@@ -47,6 +52,8 @@ Tests verify:
 ```bash
 python3 generate_tests.py -v
 ```
+
+This also cleans the `tests/` directory before regenerating, so stale tests from previous runs are never left behind.
 
 ### Cross-compile
 
@@ -68,6 +75,7 @@ A nonzero exit code from any test binary identifies which check failed. Each `.S
 - **No libc**: Each test is a standalone static binary using Linux syscall 93 (exit) directly
 - **Generated**: A Python code generator produces all `.S` files to avoid duplication and ensure consistency
 - **Side-effect checking**: After each instruction under test, CSRs and witness registers are verified
+- **Full-VLMAX tail checking**: Edge case tests fill registers at VLMAX, dump with `vs1r.v`/`vs2r.v`, and verify tail bytes dynamically using `csrr vlenb`
 
 ## License
 

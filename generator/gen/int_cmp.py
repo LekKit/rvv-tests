@@ -9,7 +9,7 @@ from typing import Callable
 
 from ..common import SEWS, U
 from ..testfile import TestFile
-from ..emit import emit_compare_vv
+from ..emit import emit_compare_vv, emit_compare_vv_masked
 from ..vectors import compare_vv
 from ..compute.integer import (
     mseq, msne, msltu, mslt, msleu, msle, msgtu, msgt,
@@ -51,6 +51,25 @@ def generate(base_dir: Path) -> list[str]:
                     for name, s2, s1 in compare_vv(sew):
                         mask = _compute_mask(cfn, s2, s1, sew)
                         emit_compare_vv(tf, mnemonic, sew, name, s2, s1, mask)
+
+                    # Masked compare at e32 only
+                    if sew == 32:
+                        s2_m = [5, 5, 1, 1]
+                        s1_m = [5, 1, 5, 5]
+                        vd_init_mask = 0b0101
+                        mask_bits = 0b1010
+                        expected_mask = 0
+                        for i in range(4):
+                            if (mask_bits >> i) & 1:
+                                if cfn(s2_m[i], s1_m[i], sew):
+                                    expected_mask |= 1 << i
+                            else:
+                                if (vd_init_mask >> i) & 1:
+                                    expected_mask |= 1 << i
+                        emit_compare_vv_masked(
+                            tf, mnemonic, sew, "mixed",
+                            s2_m, s1_m, vd_init_mask, mask_bits, expected_mask,
+                        )
 
             elif form == "vx":
                 from ..vectors import binop_vx

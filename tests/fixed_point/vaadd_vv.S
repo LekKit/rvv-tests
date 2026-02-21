@@ -13,36 +13,44 @@
  *     8 = vaadd.vv e8 signed: CSR
  *     9 = vaadd.vv e8 mixed: result
  *    10 = vaadd.vv e8 mixed: CSR
- *    11 = vaadd.vv e16 basic: result
- *    12 = vaadd.vv e16 basic: CSR
- *    13 = vaadd.vv e16 zeros: result
- *    14 = vaadd.vv e16 zeros: CSR
- *    15 = vaadd.vv e16 max: result
- *    16 = vaadd.vv e16 max: CSR
- *    17 = vaadd.vv e16 signed: result
- *    18 = vaadd.vv e16 signed: CSR
- *    19 = vaadd.vv e16 mixed: result
- *    20 = vaadd.vv e16 mixed: CSR
- *    21 = vaadd.vv e32 basic: result
- *    22 = vaadd.vv e32 basic: CSR
- *    23 = vaadd.vv e32 zeros: result
- *    24 = vaadd.vv e32 zeros: CSR
- *    25 = vaadd.vv e32 max: result
- *    26 = vaadd.vv e32 max: CSR
- *    27 = vaadd.vv e32 signed: result
- *    28 = vaadd.vv e32 signed: CSR
- *    29 = vaadd.vv e32 mixed: result
- *    30 = vaadd.vv e32 mixed: CSR
- *    31 = vaadd.vv e64 basic: result
- *    32 = vaadd.vv e64 basic: CSR
- *    33 = vaadd.vv e64 zeros: result
- *    34 = vaadd.vv e64 zeros: CSR
- *    35 = vaadd.vv e64 max: result
- *    36 = vaadd.vv e64 max: CSR
- *    37 = vaadd.vv e64 signed: result
- *    38 = vaadd.vv e64 signed: CSR
- *    39 = vaadd.vv e64 mixed: result
- *    40 = vaadd.vv e64 mixed: CSR
+ *    11 = vaadd.vv e8 extreme: result
+ *    12 = vaadd.vv e8 extreme: CSR
+ *    13 = vaadd.vv e16 basic: result
+ *    14 = vaadd.vv e16 basic: CSR
+ *    15 = vaadd.vv e16 zeros: result
+ *    16 = vaadd.vv e16 zeros: CSR
+ *    17 = vaadd.vv e16 max: result
+ *    18 = vaadd.vv e16 max: CSR
+ *    19 = vaadd.vv e16 signed: result
+ *    20 = vaadd.vv e16 signed: CSR
+ *    21 = vaadd.vv e16 mixed: result
+ *    22 = vaadd.vv e16 mixed: CSR
+ *    23 = vaadd.vv e16 extreme: result
+ *    24 = vaadd.vv e16 extreme: CSR
+ *    25 = vaadd.vv e32 basic: result
+ *    26 = vaadd.vv e32 basic: CSR
+ *    27 = vaadd.vv e32 zeros: result
+ *    28 = vaadd.vv e32 zeros: CSR
+ *    29 = vaadd.vv e32 max: result
+ *    30 = vaadd.vv e32 max: CSR
+ *    31 = vaadd.vv e32 signed: result
+ *    32 = vaadd.vv e32 signed: CSR
+ *    33 = vaadd.vv e32 mixed: result
+ *    34 = vaadd.vv e32 mixed: CSR
+ *    35 = vaadd.vv e32 extreme: result
+ *    36 = vaadd.vv e32 extreme: CSR
+ *    37 = vaadd.vv e64 basic: result
+ *    38 = vaadd.vv e64 basic: CSR
+ *    39 = vaadd.vv e64 zeros: result
+ *    40 = vaadd.vv e64 zeros: CSR
+ *    41 = vaadd.vv e64 max: result
+ *    42 = vaadd.vv e64 max: CSR
+ *    43 = vaadd.vv e64 signed: result
+ *    44 = vaadd.vv e64 signed: CSR
+ *    45 = vaadd.vv e64 mixed: result
+ *    46 = vaadd.vv e64 mixed: CSR
+ *    47 = vaadd.vv e64 extreme: result
+ *    48 = vaadd.vv e64 extreme: CSR
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -63,10 +71,7 @@
     vse8.v v8, (t1)
     CHECK_MEM result_buf, tc1_exp, 4
     SET_TEST_NUM 2
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
     /* Test 3: vaadd.vv SEW=8 zeros vxrm=0 */
     li t0, 4
@@ -83,10 +88,7 @@
     vse8.v v8, (t1)
     CHECK_MEM result_buf, tc3_exp, 4
     SET_TEST_NUM 4
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
     /* Test 5: vaadd.vv SEW=8 max vxrm=0 */
     li t0, 4
@@ -103,10 +105,7 @@
     vse8.v v8, (t1)
     CHECK_MEM result_buf, tc5_exp, 4
     SET_TEST_NUM 6
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
     /* Test 7: vaadd.vv SEW=8 signed vxrm=0 */
     li t0, 4
@@ -123,10 +122,7 @@
     vse8.v v8, (t1)
     CHECK_MEM result_buf, tc7_exp, 4
     SET_TEST_NUM 8
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
     /* Test 9: vaadd.vv SEW=8 mixed vxrm=0 */
     li t0, 4
@@ -143,32 +139,26 @@
     vse8.v v8, (t1)
     CHECK_MEM result_buf, tc9_exp, 4
     SET_TEST_NUM 10
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 11: vaadd.vv SEW=16 basic vxrm=0 */
+    /* Test 11: vaadd.vv SEW=8 extreme vxrm=0 */
     li t0, 4
-    vsetvli t0, t0, e16, m1, tu, mu
+    vsetvli t0, t0, e8, m1, tu, mu
     csrwi vxrm, 0
     la t1, tc11_s2
-    vle16.v v16, (t1)
+    vle8.v v16, (t1)
     la t1, tc11_s1
-    vle16.v v20, (t1)
+    vle8.v v20, (t1)
     SAVE_CSRS
     vaadd.vv v8, v16, v20
     SET_TEST_NUM 11
     la t1, result_buf
-    vse16.v v8, (t1)
-    CHECK_MEM result_buf, tc11_exp, 8
+    vse8.v v8, (t1)
+    CHECK_MEM result_buf, tc11_exp, 4
     SET_TEST_NUM 12
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 13: vaadd.vv SEW=16 zeros vxrm=0 */
+    /* Test 13: vaadd.vv SEW=16 basic vxrm=0 */
     li t0, 4
     vsetvli t0, t0, e16, m1, tu, mu
     csrwi vxrm, 0
@@ -183,12 +173,9 @@
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc13_exp, 8
     SET_TEST_NUM 14
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 15: vaadd.vv SEW=16 max vxrm=0 */
+    /* Test 15: vaadd.vv SEW=16 zeros vxrm=0 */
     li t0, 4
     vsetvli t0, t0, e16, m1, tu, mu
     csrwi vxrm, 0
@@ -203,12 +190,9 @@
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc15_exp, 8
     SET_TEST_NUM 16
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 17: vaadd.vv SEW=16 signed vxrm=0 */
+    /* Test 17: vaadd.vv SEW=16 max vxrm=0 */
     li t0, 4
     vsetvli t0, t0, e16, m1, tu, mu
     csrwi vxrm, 0
@@ -223,12 +207,9 @@
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc17_exp, 8
     SET_TEST_NUM 18
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 19: vaadd.vv SEW=16 mixed vxrm=0 */
+    /* Test 19: vaadd.vv SEW=16 signed vxrm=0 */
     li t0, 4
     vsetvli t0, t0, e16, m1, tu, mu
     csrwi vxrm, 0
@@ -243,52 +224,43 @@
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc19_exp, 8
     SET_TEST_NUM 20
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 21: vaadd.vv SEW=32 basic vxrm=0 */
+    /* Test 21: vaadd.vv SEW=16 mixed vxrm=0 */
     li t0, 4
-    vsetvli t0, t0, e32, m1, tu, mu
+    vsetvli t0, t0, e16, m1, tu, mu
     csrwi vxrm, 0
     la t1, tc21_s2
-    vle32.v v16, (t1)
+    vle16.v v16, (t1)
     la t1, tc21_s1
-    vle32.v v20, (t1)
+    vle16.v v20, (t1)
     SAVE_CSRS
     vaadd.vv v8, v16, v20
     SET_TEST_NUM 21
     la t1, result_buf
-    vse32.v v8, (t1)
-    CHECK_MEM result_buf, tc21_exp, 16
+    vse16.v v8, (t1)
+    CHECK_MEM result_buf, tc21_exp, 8
     SET_TEST_NUM 22
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 23: vaadd.vv SEW=32 zeros vxrm=0 */
+    /* Test 23: vaadd.vv SEW=16 extreme vxrm=0 */
     li t0, 4
-    vsetvli t0, t0, e32, m1, tu, mu
+    vsetvli t0, t0, e16, m1, tu, mu
     csrwi vxrm, 0
     la t1, tc23_s2
-    vle32.v v16, (t1)
+    vle16.v v16, (t1)
     la t1, tc23_s1
-    vle32.v v20, (t1)
+    vle16.v v20, (t1)
     SAVE_CSRS
     vaadd.vv v8, v16, v20
     SET_TEST_NUM 23
     la t1, result_buf
-    vse32.v v8, (t1)
-    CHECK_MEM result_buf, tc23_exp, 16
+    vse16.v v8, (t1)
+    CHECK_MEM result_buf, tc23_exp, 8
     SET_TEST_NUM 24
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 25: vaadd.vv SEW=32 max vxrm=0 */
+    /* Test 25: vaadd.vv SEW=32 basic vxrm=0 */
     li t0, 4
     vsetvli t0, t0, e32, m1, tu, mu
     csrwi vxrm, 0
@@ -303,12 +275,9 @@
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc25_exp, 16
     SET_TEST_NUM 26
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 27: vaadd.vv SEW=32 signed vxrm=0 */
+    /* Test 27: vaadd.vv SEW=32 zeros vxrm=0 */
     li t0, 4
     vsetvli t0, t0, e32, m1, tu, mu
     csrwi vxrm, 0
@@ -323,12 +292,9 @@
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc27_exp, 16
     SET_TEST_NUM 28
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 29: vaadd.vv SEW=32 mixed vxrm=0 */
+    /* Test 29: vaadd.vv SEW=32 max vxrm=0 */
     li t0, 4
     vsetvli t0, t0, e32, m1, tu, mu
     csrwi vxrm, 0
@@ -343,72 +309,60 @@
     vse32.v v8, (t1)
     CHECK_MEM result_buf, tc29_exp, 16
     SET_TEST_NUM 30
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 31: vaadd.vv SEW=64 basic vxrm=0 */
+    /* Test 31: vaadd.vv SEW=32 signed vxrm=0 */
     li t0, 4
-    vsetvli t0, t0, e64, m1, tu, mu
+    vsetvli t0, t0, e32, m1, tu, mu
     csrwi vxrm, 0
     la t1, tc31_s2
-    vle64.v v16, (t1)
+    vle32.v v16, (t1)
     la t1, tc31_s1
-    vle64.v v20, (t1)
+    vle32.v v20, (t1)
     SAVE_CSRS
     vaadd.vv v8, v16, v20
     SET_TEST_NUM 31
     la t1, result_buf
-    vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc31_exp, 32
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc31_exp, 16
     SET_TEST_NUM 32
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 33: vaadd.vv SEW=64 zeros vxrm=0 */
+    /* Test 33: vaadd.vv SEW=32 mixed vxrm=0 */
     li t0, 4
-    vsetvli t0, t0, e64, m1, tu, mu
+    vsetvli t0, t0, e32, m1, tu, mu
     csrwi vxrm, 0
     la t1, tc33_s2
-    vle64.v v16, (t1)
+    vle32.v v16, (t1)
     la t1, tc33_s1
-    vle64.v v20, (t1)
+    vle32.v v20, (t1)
     SAVE_CSRS
     vaadd.vv v8, v16, v20
     SET_TEST_NUM 33
     la t1, result_buf
-    vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc33_exp, 32
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc33_exp, 16
     SET_TEST_NUM 34
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 35: vaadd.vv SEW=64 max vxrm=0 */
+    /* Test 35: vaadd.vv SEW=32 extreme vxrm=0 */
     li t0, 4
-    vsetvli t0, t0, e64, m1, tu, mu
+    vsetvli t0, t0, e32, m1, tu, mu
     csrwi vxrm, 0
     la t1, tc35_s2
-    vle64.v v16, (t1)
+    vle32.v v16, (t1)
     la t1, tc35_s1
-    vle64.v v20, (t1)
+    vle32.v v20, (t1)
     SAVE_CSRS
     vaadd.vv v8, v16, v20
     SET_TEST_NUM 35
     la t1, result_buf
-    vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc35_exp, 32
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc35_exp, 16
     SET_TEST_NUM 36
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 37: vaadd.vv SEW=64 signed vxrm=0 */
+    /* Test 37: vaadd.vv SEW=64 basic vxrm=0 */
     li t0, 4
     vsetvli t0, t0, e64, m1, tu, mu
     csrwi vxrm, 0
@@ -423,12 +377,9 @@
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc37_exp, 32
     SET_TEST_NUM 38
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
 
-    /* Test 39: vaadd.vv SEW=64 mixed vxrm=0 */
+    /* Test 39: vaadd.vv SEW=64 zeros vxrm=0 */
     li t0, 4
     vsetvli t0, t0, e64, m1, tu, mu
     csrwi vxrm, 0
@@ -443,10 +394,75 @@
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc39_exp, 32
     SET_TEST_NUM 40
-    CHECK_VSTART_ZERO
-    CHECK_VXRM_UNCHANGED
-    CHECK_VL_UNCHANGED
-    CHECK_VTYPE_UNCHANGED
+    CHECK_CSRS_UNCHANGED
+
+    /* Test 41: vaadd.vv SEW=64 max vxrm=0 */
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    csrwi vxrm, 0
+    la t1, tc41_s2
+    vle64.v v16, (t1)
+    la t1, tc41_s1
+    vle64.v v20, (t1)
+    SAVE_CSRS
+    vaadd.vv v8, v16, v20
+    SET_TEST_NUM 41
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc41_exp, 32
+    SET_TEST_NUM 42
+    CHECK_CSRS_UNCHANGED
+
+    /* Test 43: vaadd.vv SEW=64 signed vxrm=0 */
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    csrwi vxrm, 0
+    la t1, tc43_s2
+    vle64.v v16, (t1)
+    la t1, tc43_s1
+    vle64.v v20, (t1)
+    SAVE_CSRS
+    vaadd.vv v8, v16, v20
+    SET_TEST_NUM 43
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc43_exp, 32
+    SET_TEST_NUM 44
+    CHECK_CSRS_UNCHANGED
+
+    /* Test 45: vaadd.vv SEW=64 mixed vxrm=0 */
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    csrwi vxrm, 0
+    la t1, tc45_s2
+    vle64.v v16, (t1)
+    la t1, tc45_s1
+    vle64.v v20, (t1)
+    SAVE_CSRS
+    vaadd.vv v8, v16, v20
+    SET_TEST_NUM 45
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc45_exp, 32
+    SET_TEST_NUM 46
+    CHECK_CSRS_UNCHANGED
+
+    /* Test 47: vaadd.vv SEW=64 extreme vxrm=0 */
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    csrwi vxrm, 0
+    la t1, tc47_s2
+    vle64.v v16, (t1)
+    la t1, tc47_s1
+    vle64.v v20, (t1)
+    SAVE_CSRS
+    vaadd.vv v8, v16, v20
+    SET_TEST_NUM 47
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc47_exp, 32
+    SET_TEST_NUM 48
+    CHECK_CSRS_UNCHANGED
 
     PASS_TEST
 
@@ -488,109 +504,137 @@ tc9_exp:
     .byte 0x00, 0xc1, 0xc1, 0x00
 .align 1
 tc11_s2:
-    .half 0x0001, 0x0002, 0x0003, 0x0004
+    .byte 0x80, 0xff, 0x80, 0xff
 tc11_s1:
-    .half 0x000a, 0x0014, 0x001e, 0x0028
+    .byte 0x80, 0xff, 0x00, 0xff
 tc11_exp:
-    .half 0x0006, 0x000b, 0x0011, 0x0016
+    .byte 0x80, 0xff, 0xc0, 0xff
 .align 1
 tc13_s2:
-    .half 0x0000, 0x0000, 0x0000, 0x0000
+    .half 0x0001, 0x0002, 0x0003, 0x0004
 tc13_s1:
-    .half 0x0000, 0x0000, 0x0000, 0x0000
+    .half 0x000a, 0x0014, 0x001e, 0x0028
 tc13_exp:
-    .half 0x0000, 0x0000, 0x0000, 0x0000
+    .half 0x0006, 0x000b, 0x0011, 0x0016
 .align 1
 tc15_s2:
-    .half 0xffff, 0xffff, 0xffff, 0xffff
+    .half 0x0000, 0x0000, 0x0000, 0x0000
 tc15_s1:
-    .half 0x0001, 0x0002, 0x0003, 0x0004
+    .half 0x0000, 0x0000, 0x0000, 0x0000
 tc15_exp:
-    .half 0x0000, 0x0001, 0x0001, 0x0002
+    .half 0x0000, 0x0000, 0x0000, 0x0000
 .align 1
 tc17_s2:
-    .half 0x7fff, 0x8000, 0x8001, 0xffff
+    .half 0xffff, 0xffff, 0xffff, 0xffff
 tc17_s1:
-    .half 0x0001, 0x0001, 0x0001, 0x0001
+    .half 0x0001, 0x0002, 0x0003, 0x0004
 tc17_exp:
-    .half 0x4000, 0xc001, 0xc001, 0x0000
+    .half 0x0000, 0x0001, 0x0001, 0x0002
 .align 1
 tc19_s2:
-    .half 0x0000, 0x0001, 0x8000, 0xffff
+    .half 0x7fff, 0x8000, 0x8001, 0xffff
 tc19_s1:
-    .half 0xffff, 0x8000, 0x0001, 0x0000
+    .half 0x0001, 0x0001, 0x0001, 0x0001
 tc19_exp:
-    .half 0x0000, 0xc001, 0xc001, 0x0000
-.align 2
+    .half 0x4000, 0xc001, 0xc001, 0x0000
+.align 1
 tc21_s2:
-    .word 0x00000001, 0x00000002, 0x00000003, 0x00000004
+    .half 0x0000, 0x0001, 0x8000, 0xffff
 tc21_s1:
-    .word 0x0000000a, 0x00000014, 0x0000001e, 0x00000028
+    .half 0xffff, 0x8000, 0x0001, 0x0000
 tc21_exp:
-    .word 0x00000006, 0x0000000b, 0x00000011, 0x00000016
-.align 2
+    .half 0x0000, 0xc001, 0xc001, 0x0000
+.align 1
 tc23_s2:
-    .word 0x00000000, 0x00000000, 0x00000000, 0x00000000
+    .half 0x8000, 0xffff, 0x8000, 0xffff
 tc23_s1:
-    .word 0x00000000, 0x00000000, 0x00000000, 0x00000000
+    .half 0x8000, 0xffff, 0x0000, 0xffff
 tc23_exp:
-    .word 0x00000000, 0x00000000, 0x00000000, 0x00000000
+    .half 0x8000, 0xffff, 0xc000, 0xffff
 .align 2
 tc25_s2:
-    .word 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff
-tc25_s1:
     .word 0x00000001, 0x00000002, 0x00000003, 0x00000004
+tc25_s1:
+    .word 0x0000000a, 0x00000014, 0x0000001e, 0x00000028
 tc25_exp:
-    .word 0x00000000, 0x00000001, 0x00000001, 0x00000002
+    .word 0x00000006, 0x0000000b, 0x00000011, 0x00000016
 .align 2
 tc27_s2:
-    .word 0x7fffffff, 0x80000000, 0x80000001, 0xffffffff
+    .word 0x00000000, 0x00000000, 0x00000000, 0x00000000
 tc27_s1:
-    .word 0x00000001, 0x00000001, 0x00000001, 0x00000001
+    .word 0x00000000, 0x00000000, 0x00000000, 0x00000000
 tc27_exp:
-    .word 0x40000000, 0xc0000001, 0xc0000001, 0x00000000
+    .word 0x00000000, 0x00000000, 0x00000000, 0x00000000
 .align 2
 tc29_s2:
-    .word 0x00000000, 0x00000001, 0x80000000, 0xffffffff
+    .word 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff
 tc29_s1:
-    .word 0xffffffff, 0x80000000, 0x00000001, 0x00000000
+    .word 0x00000001, 0x00000002, 0x00000003, 0x00000004
 tc29_exp:
-    .word 0x00000000, 0xc0000001, 0xc0000001, 0x00000000
-.align 3
+    .word 0x00000000, 0x00000001, 0x00000001, 0x00000002
+.align 2
 tc31_s2:
-    .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
+    .word 0x7fffffff, 0x80000000, 0x80000001, 0xffffffff
 tc31_s1:
-    .dword 0x000000000000000a, 0x0000000000000014, 0x000000000000001e, 0x0000000000000028
+    .word 0x00000001, 0x00000001, 0x00000001, 0x00000001
 tc31_exp:
-    .dword 0x0000000000000006, 0x000000000000000b, 0x0000000000000011, 0x0000000000000016
-.align 3
+    .word 0x40000000, 0xc0000001, 0xc0000001, 0x00000000
+.align 2
 tc33_s2:
-    .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
+    .word 0x00000000, 0x00000001, 0x80000000, 0xffffffff
 tc33_s1:
-    .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
+    .word 0xffffffff, 0x80000000, 0x00000001, 0x00000000
 tc33_exp:
-    .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
-.align 3
+    .word 0x00000000, 0xc0000001, 0xc0000001, 0x00000000
+.align 2
 tc35_s2:
-    .dword 0xffffffffffffffff, 0xffffffffffffffff, 0xffffffffffffffff, 0xffffffffffffffff
+    .word 0x80000000, 0xffffffff, 0x80000000, 0xffffffff
 tc35_s1:
-    .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
+    .word 0x80000000, 0xffffffff, 0x00000000, 0xffffffff
 tc35_exp:
-    .dword 0x0000000000000000, 0x0000000000000001, 0x0000000000000001, 0x0000000000000002
+    .word 0x80000000, 0xffffffff, 0xc0000000, 0xffffffff
 .align 3
 tc37_s2:
-    .dword 0x7fffffffffffffff, 0x8000000000000000, 0x8000000000000001, 0xffffffffffffffff
+    .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
 tc37_s1:
-    .dword 0x0000000000000001, 0x0000000000000001, 0x0000000000000001, 0x0000000000000001
+    .dword 0x000000000000000a, 0x0000000000000014, 0x000000000000001e, 0x0000000000000028
 tc37_exp:
-    .dword 0x4000000000000000, 0xc000000000000001, 0xc000000000000001, 0x0000000000000000
+    .dword 0x0000000000000006, 0x000000000000000b, 0x0000000000000011, 0x0000000000000016
 .align 3
 tc39_s2:
-    .dword 0x0000000000000000, 0x0000000000000001, 0x8000000000000000, 0xffffffffffffffff
+    .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
 tc39_s1:
-    .dword 0xffffffffffffffff, 0x8000000000000000, 0x0000000000000001, 0x0000000000000000
+    .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
 tc39_exp:
+    .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
+.align 3
+tc41_s2:
+    .dword 0xffffffffffffffff, 0xffffffffffffffff, 0xffffffffffffffff, 0xffffffffffffffff
+tc41_s1:
+    .dword 0x0000000000000001, 0x0000000000000002, 0x0000000000000003, 0x0000000000000004
+tc41_exp:
+    .dword 0x0000000000000000, 0x0000000000000001, 0x0000000000000001, 0x0000000000000002
+.align 3
+tc43_s2:
+    .dword 0x7fffffffffffffff, 0x8000000000000000, 0x8000000000000001, 0xffffffffffffffff
+tc43_s1:
+    .dword 0x0000000000000001, 0x0000000000000001, 0x0000000000000001, 0x0000000000000001
+tc43_exp:
+    .dword 0x4000000000000000, 0xc000000000000001, 0xc000000000000001, 0x0000000000000000
+.align 3
+tc45_s2:
+    .dword 0x0000000000000000, 0x0000000000000001, 0x8000000000000000, 0xffffffffffffffff
+tc45_s1:
+    .dword 0xffffffffffffffff, 0x8000000000000000, 0x0000000000000001, 0x0000000000000000
+tc45_exp:
     .dword 0x0000000000000000, 0xc000000000000001, 0xc000000000000001, 0x0000000000000000
+.align 3
+tc47_s2:
+    .dword 0x8000000000000000, 0xffffffffffffffff, 0x8000000000000000, 0xffffffffffffffff
+tc47_s1:
+    .dword 0x8000000000000000, 0xffffffffffffffff, 0x0000000000000000, 0xffffffffffffffff
+tc47_exp:
+    .dword 0x8000000000000000, 0xffffffffffffffff, 0xc000000000000000, 0xffffffffffffffff
 
 .align 4
 result_buf:  .space 256

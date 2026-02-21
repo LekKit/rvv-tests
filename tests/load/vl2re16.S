@@ -17,7 +17,7 @@
     la t1, result_buf
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc1_data, 8
-    CHECK_VSTART_ZERO
+    CHECK_CSRS_UNCHANGED
 
     PASS_TEST
 

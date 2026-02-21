@@ -4,14 +4,23 @@
  * Exit code 0 = PASS
  * Exit code N = check N failed:
  *     1 = vwaddu.wx e8 sc_0x01: result
- *     2 = vwaddu.wx e8 sc_0xff: result
- *     3 = vwaddu.wx e8 sc_0x00: result
- *     4 = vwaddu.wx e16 sc_0x0001: result
- *     5 = vwaddu.wx e16 sc_0xffff: result
- *     6 = vwaddu.wx e16 sc_0x0000: result
- *     7 = vwaddu.wx e32 sc_0x00000001: result
- *     8 = vwaddu.wx e32 sc_0xffffffff: result
- *     9 = vwaddu.wx e32 sc_0x00000000: result
+ *     2 = vwaddu.wx e8 sc_0x01: CSR side-effect
+ *     3 = vwaddu.wx e8 sc_0xff: result
+ *     4 = vwaddu.wx e8 sc_0xff: CSR side-effect
+ *     5 = vwaddu.wx e8 sc_0x00: result
+ *     6 = vwaddu.wx e8 sc_0x00: CSR side-effect
+ *     7 = vwaddu.wx e16 sc_0x0001: result
+ *     8 = vwaddu.wx e16 sc_0x0001: CSR side-effect
+ *     9 = vwaddu.wx e16 sc_0xffff: result
+ *    10 = vwaddu.wx e16 sc_0xffff: CSR side-effect
+ *    11 = vwaddu.wx e16 sc_0x0000: result
+ *    12 = vwaddu.wx e16 sc_0x0000: CSR side-effect
+ *    13 = vwaddu.wx e32 sc_0x00000001: result
+ *    14 = vwaddu.wx e32 sc_0x00000001: CSR side-effect
+ *    15 = vwaddu.wx e32 sc_0xffffffff: result
+ *    16 = vwaddu.wx e32 sc_0xffffffff: CSR side-effect
+ *    17 = vwaddu.wx e32 sc_0x00000000: result
+ *    18 = vwaddu.wx e32 sc_0x00000000: CSR side-effect
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -25,132 +34,150 @@
     li a0, 0x01
     SAVE_CSRS
     vwaddu.wx v8, v16, a0
+    SET_TEST_NUM 2
+    CHECK_CSRS_UNCHANGED
     SET_TEST_NUM 1
+    li t0, 4
     vsetvli t0, t0, e16, m2, tu, mu
     la t1, result_buf
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc1_exp, 8
-    CHECK_VSTART_ZERO
-
-    li t0, 4
-    vsetvli t0, t0, e16, m2, tu, mu
-    la t1, tc2_s2w
-    vle16.v v16, (t1)
-    vsetvli t0, t0, e8, m1, tu, mu
-    li a0, 0xff
-    SAVE_CSRS
-    vwaddu.wx v8, v16, a0
-    SET_TEST_NUM 2
-    vsetvli t0, t0, e16, m2, tu, mu
-    la t1, result_buf
-    vse16.v v8, (t1)
-    CHECK_MEM result_buf, tc2_exp, 8
-    CHECK_VSTART_ZERO
 
     li t0, 4
     vsetvli t0, t0, e16, m2, tu, mu
     la t1, tc3_s2w
     vle16.v v16, (t1)
     vsetvli t0, t0, e8, m1, tu, mu
-    li a0, 0x00
+    li a0, 0xff
     SAVE_CSRS
     vwaddu.wx v8, v16, a0
+    SET_TEST_NUM 4
+    CHECK_CSRS_UNCHANGED
     SET_TEST_NUM 3
+    li t0, 4
     vsetvli t0, t0, e16, m2, tu, mu
     la t1, result_buf
     vse16.v v8, (t1)
     CHECK_MEM result_buf, tc3_exp, 8
-    CHECK_VSTART_ZERO
+
+    li t0, 4
+    vsetvli t0, t0, e16, m2, tu, mu
+    la t1, tc5_s2w
+    vle16.v v16, (t1)
+    vsetvli t0, t0, e8, m1, tu, mu
+    li a0, 0x00
+    SAVE_CSRS
+    vwaddu.wx v8, v16, a0
+    SET_TEST_NUM 6
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 5
+    li t0, 4
+    vsetvli t0, t0, e16, m2, tu, mu
+    la t1, result_buf
+    vse16.v v8, (t1)
+    CHECK_MEM result_buf, tc5_exp, 8
 
     li t0, 4
     vsetvli t0, t0, e32, m2, tu, mu
-    la t1, tc4_s2w
+    la t1, tc7_s2w
     vle32.v v16, (t1)
     vsetvli t0, t0, e16, m1, tu, mu
     li a0, 0x0001
     SAVE_CSRS
     vwaddu.wx v8, v16, a0
-    SET_TEST_NUM 4
+    SET_TEST_NUM 8
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 7
+    li t0, 4
     vsetvli t0, t0, e32, m2, tu, mu
     la t1, result_buf
     vse32.v v8, (t1)
-    CHECK_MEM result_buf, tc4_exp, 16
-    CHECK_VSTART_ZERO
+    CHECK_MEM result_buf, tc7_exp, 16
 
     li t0, 4
     vsetvli t0, t0, e32, m2, tu, mu
-    la t1, tc5_s2w
+    la t1, tc9_s2w
     vle32.v v16, (t1)
     vsetvli t0, t0, e16, m1, tu, mu
     li a0, 0xffff
     SAVE_CSRS
     vwaddu.wx v8, v16, a0
-    SET_TEST_NUM 5
+    SET_TEST_NUM 10
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 9
+    li t0, 4
     vsetvli t0, t0, e32, m2, tu, mu
     la t1, result_buf
     vse32.v v8, (t1)
-    CHECK_MEM result_buf, tc5_exp, 16
-    CHECK_VSTART_ZERO
+    CHECK_MEM result_buf, tc9_exp, 16
 
     li t0, 4
     vsetvli t0, t0, e32, m2, tu, mu
-    la t1, tc6_s2w
+    la t1, tc11_s2w
     vle32.v v16, (t1)
     vsetvli t0, t0, e16, m1, tu, mu
     li a0, 0x0000
     SAVE_CSRS
     vwaddu.wx v8, v16, a0
-    SET_TEST_NUM 6
+    SET_TEST_NUM 12
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 11
+    li t0, 4
     vsetvli t0, t0, e32, m2, tu, mu
     la t1, result_buf
     vse32.v v8, (t1)
-    CHECK_MEM result_buf, tc6_exp, 16
-    CHECK_VSTART_ZERO
+    CHECK_MEM result_buf, tc11_exp, 16
 
     li t0, 4
     vsetvli t0, t0, e64, m2, tu, mu
-    la t1, tc7_s2w
+    la t1, tc13_s2w
     vle64.v v16, (t1)
     vsetvli t0, t0, e32, m1, tu, mu
     li a0, 0x00000001
     SAVE_CSRS
     vwaddu.wx v8, v16, a0
-    SET_TEST_NUM 7
+    SET_TEST_NUM 14
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 13
+    li t0, 4
     vsetvli t0, t0, e64, m2, tu, mu
     la t1, result_buf
     vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc7_exp, 32
-    CHECK_VSTART_ZERO
+    CHECK_MEM result_buf, tc13_exp, 32
 
     li t0, 4
     vsetvli t0, t0, e64, m2, tu, mu
-    la t1, tc8_s2w
+    la t1, tc15_s2w
     vle64.v v16, (t1)
     vsetvli t0, t0, e32, m1, tu, mu
     li a0, 0xffffffff
     SAVE_CSRS
     vwaddu.wx v8, v16, a0
-    SET_TEST_NUM 8
+    SET_TEST_NUM 16
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 15
+    li t0, 4
     vsetvli t0, t0, e64, m2, tu, mu
     la t1, result_buf
     vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc8_exp, 32
-    CHECK_VSTART_ZERO
+    CHECK_MEM result_buf, tc15_exp, 32
 
     li t0, 4
     vsetvli t0, t0, e64, m2, tu, mu
-    la t1, tc9_s2w
+    la t1, tc17_s2w
     vle64.v v16, (t1)
     vsetvli t0, t0, e32, m1, tu, mu
     li a0, 0x00000000
     SAVE_CSRS
     vwaddu.wx v8, v16, a0
-    SET_TEST_NUM 9
+    SET_TEST_NUM 18
+    CHECK_CSRS_UNCHANGED
+    SET_TEST_NUM 17
+    li t0, 4
     vsetvli t0, t0, e64, m2, tu, mu
     la t1, result_buf
     vse64.v v8, (t1)
-    CHECK_MEM result_buf, tc9_exp, 32
-    CHECK_VSTART_ZERO
+    CHECK_MEM result_buf, tc17_exp, 32
 
     PASS_TEST
 
@@ -161,44 +188,44 @@ tc1_s2w:
 tc1_exp:
     .half 0x0002, 0x0003, 0x8000, 0x0000
 .align 1
-tc2_s2w:
-    .half 0x0001, 0x0002, 0x7fff, 0xffff
-tc2_exp:
-    .half 0x0100, 0x0101, 0x80fe, 0x00fe
-.align 1
 tc3_s2w:
     .half 0x0001, 0x0002, 0x7fff, 0xffff
 tc3_exp:
+    .half 0x0100, 0x0101, 0x80fe, 0x00fe
+.align 1
+tc5_s2w:
+    .half 0x0001, 0x0002, 0x7fff, 0xffff
+tc5_exp:
     .half 0x0001, 0x0002, 0x7fff, 0xffff
 .align 2
-tc4_s2w:
+tc7_s2w:
     .word 0x00000001, 0x00000002, 0x7fffffff, 0xffffffff
-tc4_exp:
+tc7_exp:
     .word 0x00000002, 0x00000003, 0x80000000, 0x00000000
 .align 2
-tc5_s2w:
+tc9_s2w:
     .word 0x00000001, 0x00000002, 0x7fffffff, 0xffffffff
-tc5_exp:
+tc9_exp:
     .word 0x00010000, 0x00010001, 0x8000fffe, 0x0000fffe
 .align 2
-tc6_s2w:
+tc11_s2w:
     .word 0x00000001, 0x00000002, 0x7fffffff, 0xffffffff
-tc6_exp:
+tc11_exp:
     .word 0x00000001, 0x00000002, 0x7fffffff, 0xffffffff
 .align 3
-tc7_s2w:
+tc13_s2w:
     .dword 0x0000000000000001, 0x0000000000000002, 0x7fffffffffffffff, 0xffffffffffffffff
-tc7_exp:
+tc13_exp:
     .dword 0x0000000000000002, 0x0000000000000003, 0x8000000000000000, 0x0000000000000000
 .align 3
-tc8_s2w:
+tc15_s2w:
     .dword 0x0000000000000001, 0x0000000000000002, 0x7fffffffffffffff, 0xffffffffffffffff
-tc8_exp:
+tc15_exp:
     .dword 0x0000000100000000, 0x0000000100000001, 0x80000000fffffffe, 0x00000000fffffffe
 .align 3
-tc9_s2w:
+tc17_s2w:
     .dword 0x0000000000000001, 0x0000000000000002, 0x7fffffffffffffff, 0xffffffffffffffff
-tc9_exp:
+tc17_exp:
     .dword 0x0000000000000001, 0x0000000000000002, 0x7fffffffffffffff, 0xffffffffffffffff
 
 .align 4

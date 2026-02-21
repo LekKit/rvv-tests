@@ -69,7 +69,7 @@ def generate(base_dir: Path) -> list[str]:
                 tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
                 tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
                 tf.code(f"SET_TEST_NUM {cn_csr}")
-                tf.code("CHECK_VSTART_ZERO")
+                tf.code("CHECK_CSRS_UNCHANGED")
 
                 tf.data_align(dsew)
                 tf.data_label(f"{tag}_src", format_data_line(src, ssew))
