@@ -609,6 +609,47 @@ def generate(base_dir: Path) -> list[str]:
             tf.data_align(sew)
             tf.data_label(f"{tag}_src", format_data_line(src, sew))
             tf.data_label(f"{tag}_exp", format_data_line(exp, sew))
+
+    # Masked vrgather.vx (e32, idx=2, mask=0b0101)
+    sew = 32
+    mask_bits = 0b0101
+    src_m = [100, 200, 300, 400]
+    vd_init_m = [0xAA, 0xBB, 0xCC, 0xDD]
+    idx_m = 2  # gather element 2 into all positions
+    exp_gx = []
+    for i in range(NUM_ELEMS):
+        if mask_bits & (1 << i):
+            exp_gx.append(src_m[idx_m] if idx_m < NUM_ELEMS else 0)
+        else:
+            exp_gx.append(vd_init_m[i])
+    cn = tf.next_check(f"vrgather.vx e{sew} idx={idx_m} masked: result")
+    tag = f"tc{cn}"
+    tf.blank()
+    tf.comment("Masked vrgather.vx")
+    tf.code(f"li t0, {NUM_ELEMS}")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+    tf.code(f"la t1, {tag}_vd")
+    tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+    tf.code(f"la t1, {tag}_src")
+    tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+    tf.code(f"la t1, {tag}_mask")
+    tf.code("vlm.v v0, (t1)")
+    tf.code(f"li a0, {idx_m}")
+    tf.code("SAVE_CSRS")
+    tf.code(f"vrgather.vx {VREG_DST}, {VREG_SRC2}, a0, v0.t")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("la t1, result_buf")
+    tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+    nbytes_m = NUM_ELEMS * (sew // 8)
+    tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes_m}")
+    tf.code("CHECK_CSRS_UNCHANGED")
+    tf.data(".align 1")
+    tf.data_label(f"{tag}_mask", f"    .byte {mask_bits}")
+    tf.data_align(sew)
+    tf.data_label(f"{tag}_vd", format_data_line(vd_init_m, sew))
+    tf.data_label(f"{tag}_src", format_data_line(src_m, sew))
+    tf.data_label(f"{tag}_exp", format_data_line(exp_gx, sew))
+
     tf.write(fpath)
     generated.append(str(fpath))
 
@@ -683,6 +724,53 @@ def generate(base_dir: Path) -> list[str]:
             tf.data_label(f"{tag}_idx", format_data_line(indices, 16))
             tf.data_align(sew)
             tf.data_label(f"{tag}_exp", format_data_line(exp, sew))
+
+    # Masked vrgatherei16 (e32, mask=0b0101)
+    sew = 32
+    mask_bits = 0b0101
+    src_m = [100, 200, 300, 400]
+    vd_init_m = [0xAA, 0xBB, 0xCC, 0xDD]
+    idx_m = [3, 2, 1, 0]
+    exp_gei16 = []
+    for i in range(NUM_ELEMS):
+        if mask_bits & (1 << i):
+            exp_gei16.append(src_m[idx_m[i]] if idx_m[i] < NUM_ELEMS else 0)
+        else:
+            exp_gei16.append(vd_init_m[i])
+    cn = tf.next_check(f"vrgatherei16 e{sew} masked: result")
+    tag = f"tc{cn}"
+    tf.blank()
+    tf.comment("Masked vrgatherei16.vv")
+    tf.code(f"li t0, {NUM_ELEMS}")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+    tf.code(f"la t1, {tag}_vd")
+    tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+    tf.code(f"la t1, {tag}_src")
+    tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+    tf.code("vsetvli t0, t0, e16, m1, tu, mu")
+    tf.code(f"la t1, {tag}_idx")
+    tf.code(f"vle16.v {VREG_SRC1}, (t1)")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+    tf.code(f"la t1, {tag}_mask")
+    tf.code("vlm.v v0, (t1)")
+    tf.code("SAVE_CSRS")
+    tf.code(f"vrgatherei16.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}, v0.t")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("la t1, result_buf")
+    tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+    nbytes_m = NUM_ELEMS * (sew // 8)
+    tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes_m}")
+    tf.code("CHECK_CSRS_UNCHANGED")
+    tf.data(".align 1")
+    tf.data_label(f"{tag}_mask", f"    .byte {mask_bits}")
+    tf.data_align(sew)
+    tf.data_label(f"{tag}_vd", format_data_line(vd_init_m, sew))
+    tf.data_label(f"{tag}_src", format_data_line(src_m, sew))
+    tf.data(".align 1")
+    tf.data_label(f"{tag}_idx", format_data_line(idx_m, 16))
+    tf.data_align(sew)
+    tf.data_label(f"{tag}_exp", format_data_line(exp_gei16, sew))
+
     tf.write(fpath)
     generated.append(str(fpath))
 
@@ -757,6 +845,57 @@ def generate(base_dir: Path) -> list[str]:
                 tf.data_align(sew)
                 tf.data_label(f"{tag}_src", format_data_line(src, sew))
                 tf.data_label(f"{tag}_exp", format_data_line(exp, sew))
+
+        # Masked slide.vx (e32, offset=1, mask=0b0101)
+        sew = 32
+        mask_bits = 0b0101
+        src = [10, 20, 30, 40]
+        vd_init = [0xAA, 0xBB, 0xCC, 0xDD]
+        offset = 1
+        exp_m = []
+        for i in range(NUM_ELEMS):
+            if direction == "up":
+                if i < offset:
+                    exp_m.append(vd_init[i])
+                elif mask_bits & (1 << i):
+                    exp_m.append(src[i - offset])
+                else:
+                    exp_m.append(vd_init[i])
+            else:
+                if mask_bits & (1 << i):
+                    if i + offset < NUM_ELEMS:
+                        exp_m.append(src[i + offset])
+                    else:
+                        exp_m.append(0)
+                else:
+                    exp_m.append(vd_init[i])
+        nbytes_m = NUM_ELEMS * (sew // 8)
+        cn = tf.next_check(f"{mnemonic} e{sew} off={offset} masked: result")
+        tag = f"tc{cn}"
+        tf.blank()
+        tf.comment(f"Masked {mnemonic}: mask=0b{mask_bits:04b}, offset={offset}")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag}_src")
+        tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+        tf.code(f"la t1, {tag}_vd")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"la t1, {tag}_mask")
+        tf.code("vlm.v v0, (t1)")
+        tf.code(f"li a0, {offset}")
+        tf.code("SAVE_CSRS")
+        tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}, a0, v0.t")
+        tf.code(f"SET_TEST_NUM {cn}")
+        tf.code("la t1, result_buf")
+        tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes_m}")
+        tf.code("CHECK_CSRS_UNCHANGED")
+        tf.data(".align 1")
+        tf.data_label(f"{tag}_mask", f"    .byte {mask_bits}")
+        tf.data_align(sew)
+        tf.data_label(f"{tag}_src", format_data_line(src, sew))
+        tf.data_label(f"{tag}_vd", format_data_line(vd_init, sew))
+        tf.data_label(f"{tag}_exp", format_data_line(exp_m, sew))
 
         fpath = out / fname
         tf.write(fpath)

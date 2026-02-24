@@ -19,6 +19,7 @@
  *    14 = vrgather.vx e64 idx=1: result
  *    15 = vrgather.vx e64 idx=2: result
  *    16 = vrgather.vx e64 idx=3: result
+ *    17 = vrgather.vx e32 idx=2 masked: result
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -232,6 +233,24 @@
     CHECK_MEM result_buf, tc16_exp, 32
     CHECK_CSRS_UNCHANGED
 
+    /* Masked vrgather.vx */
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc17_vd
+    vle32.v v8, (t1)
+    la t1, tc17_src
+    vle32.v v16, (t1)
+    la t1, tc17_mask
+    vlm.v v0, (t1)
+    li a0, 2
+    SAVE_CSRS
+    vrgather.vx v8, v16, a0, v0.t
+    SET_TEST_NUM 17
+    la t1, result_buf
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc17_exp, 16
+    CHECK_CSRS_UNCHANGED
+
     PASS_TEST
 
 .data
@@ -315,6 +334,16 @@ tc16_src:
     .dword 0x000000000000000a, 0x0000000000000014, 0x000000000000001e, 0x0000000000000028
 tc16_exp:
     .dword 0x0000000000000028, 0x0000000000000028, 0x0000000000000028, 0x0000000000000028
+.align 1
+tc17_mask:
+    .byte 5
+.align 2
+tc17_vd:
+    .word 0x000000aa, 0x000000bb, 0x000000cc, 0x000000dd
+tc17_src:
+    .word 0x00000064, 0x000000c8, 0x0000012c, 0x00000190
+tc17_exp:
+    .word 0x0000012c, 0x000000bb, 0x0000012c, 0x000000dd
 
 .align 4
 result_buf:  .space 256

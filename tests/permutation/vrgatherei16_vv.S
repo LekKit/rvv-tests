@@ -15,6 +15,7 @@
  *    10 = vrgatherei16 e64 identity: result
  *    11 = vrgatherei16 e64 reverse: result
  *    12 = vrgatherei16 e64 splat: result
+ *    13 = vrgatherei16 e32 masked: result
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -212,6 +213,27 @@
     CHECK_MEM result_buf, tc12_exp, 32
     CHECK_CSRS_UNCHANGED
 
+    /* Masked vrgatherei16.vv */
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc13_vd
+    vle32.v v8, (t1)
+    la t1, tc13_src
+    vle32.v v16, (t1)
+    vsetvli t0, t0, e16, m1, tu, mu
+    la t1, tc13_idx
+    vle16.v v20, (t1)
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc13_mask
+    vlm.v v0, (t1)
+    SAVE_CSRS
+    vrgatherei16.vv v8, v16, v20, v0.t
+    SET_TEST_NUM 13
+    la t1, result_buf
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc13_exp, 16
+    CHECK_CSRS_UNCHANGED
+
     PASS_TEST
 
 .data
@@ -323,6 +345,20 @@ tc12_idx:
 .align 3
 tc12_exp:
     .dword 0x000000000000000a, 0x000000000000000a, 0x000000000000000a, 0x000000000000000a
+.align 1
+tc13_mask:
+    .byte 5
+.align 2
+tc13_vd:
+    .word 0x000000aa, 0x000000bb, 0x000000cc, 0x000000dd
+tc13_src:
+    .word 0x00000064, 0x000000c8, 0x0000012c, 0x00000190
+.align 1
+tc13_idx:
+    .half 0x0003, 0x0002, 0x0001, 0x0000
+.align 2
+tc13_exp:
+    .word 0x00000190, 0x000000bb, 0x000000c8, 0x000000dd
 
 .align 4
 result_buf:  .space 256
