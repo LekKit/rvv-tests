@@ -24,6 +24,7 @@ tests/edge_cases/vl_zero_fp.S
 tests/edge_cases/vl_zero_load.S
 tests/edge_cases/vl_zero_store.S
 tests/edge_cases/vle32ff_fault.S
+tests/edge_cases/vstart_nonzero.S
 tests/edge_cases/vxsat_sticky.S
 tests/edge_cases/widening_m2_m4.S
 tests/fixed_point/vaadd_vv.S

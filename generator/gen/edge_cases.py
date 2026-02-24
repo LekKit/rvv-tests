@@ -96,7 +96,7 @@ def generate(base_dir: Path) -> list[str]:
     # ==================================================================
     # Test 2: vstart CSR write/read and nonzero vstart behavior
     # ==================================================================
-    # generated.append(_gen_vstart_nonzero(out))  # re-enable after verification
+    generated.append(_gen_vstart_nonzero(out))
 
     # ==================================================================
     # Test 3: Tail undisturbed — elements >= vl must be preserved
