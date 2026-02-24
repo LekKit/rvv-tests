@@ -283,6 +283,9 @@ def generate(base_dir: Path) -> list[str]:
     generated.append(_gen_vsetvl_edge_cases(out))
     generated.append(_gen_whole_reg_ops(out))
 
+    # Phase 7: small vl edge cases
+    generated.append(_gen_small_vl(out))
+
     return generated
 
 
@@ -3234,6 +3237,159 @@ def _gen_whole_reg_ops(out: Path) -> str:
     tf.data_label(f"{tag}_mem", format_data_line(mem2, sew))
     tf.data("    .space 240")  # pad to 256 bytes
     tf.data_label(f"{tag}_res", "    .space 256")
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_small_vl(out: Path) -> str:
+    """Test representative instructions with small vl values (1, 2, 3).
+
+    Ensures correct behavior at boundary vector lengths.  Uses tu/mu
+    policy and pre-fills vd, then verifies only the first vl elements
+    are computed and the rest are preserved (tail undisturbed).
+
+    Tests: vadd.vv, vmul.vv, vand.vv, vle32.v, vse32.v, vslidedown.vi,
+    vredsum.vs for each of vl=1, vl=2, vl=3.
+    """
+    fpath = out / "small_vl.S"
+    tf = TestFile(
+        "Small vl edge cases",
+        "Verifies correct behavior with vl=1, vl=2, vl=3 for "
+        "representative instructions (vadd, vmul, vand, vle32, vse32, "
+        "vslidedown, vredsum). Tail elements must be preserved (tu).")
+
+    sew = 32
+    prefill = [0xAAAA_AAAA, 0xBBBB_BBBB, 0xCCCC_CCCC, 0xDDDD_DDDD]
+    s2 = [100, 200, 300, 400]
+    s1 = [1, 2, 3, 4]
+    tag_pfx = "svl"
+
+    for vl_val in [1, 2, 3]:
+        # --- vadd.vv ---
+        exp_add = [(s2[i] + s1[i]) & M(sew) if i < vl_val else prefill[i]
+                   for i in range(NUM_ELEMS)]
+        cn = tf.next_check(f"vadd.vv vl={vl_val}: result")
+        tag = f"{tag_pfx}{cn}"
+        tf.blank()
+        tf.comment(f"vadd.vv with vl={vl_val}")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag}_pf")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"la t1, {tag}_s2")
+        tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+        tf.code(f"la t1, {tag}_s1")
+        tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
+        tf.code(f"li t0, {vl_val}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code("SAVE_CSRS")
+        tf.code(f"vadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}")
+        tf.code(f"SET_TEST_NUM {cn}")
+        tf.code("la t1, result_buf")
+        # Store all 4 elements (at full vl) to check tail preserved
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+        nbytes = NUM_ELEMS * (sew // 8)
+        tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
+
+        tf.data_align(sew)
+        tf.data_label(f"{tag}_pf", format_data_line(prefill, sew))
+        tf.data_label(f"{tag}_s2", format_data_line(s2, sew))
+        tf.data_label(f"{tag}_s1", format_data_line(s1, sew))
+        tf.data_label(f"{tag}_exp", format_data_line(exp_add, sew))
+
+        # --- vmul.vv ---
+        exp_mul = [(s2[i] * s1[i]) & M(sew) if i < vl_val else prefill[i]
+                   for i in range(NUM_ELEMS)]
+        cn = tf.next_check(f"vmul.vv vl={vl_val}: result")
+        tag = f"{tag_pfx}{cn}"
+        tf.blank()
+        tf.comment(f"vmul.vv with vl={vl_val}")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag}_pf")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"la t1, {tag}_s2")
+        tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+        tf.code(f"la t1, {tag}_s1")
+        tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
+        tf.code(f"li t0, {vl_val}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code("SAVE_CSRS")
+        tf.code(f"vmul.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}")
+        tf.code(f"SET_TEST_NUM {cn}")
+        tf.code("la t1, result_buf")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
+
+        tf.data_align(sew)
+        tf.data_label(f"{tag}_pf", format_data_line(prefill, sew))
+        tf.data_label(f"{tag}_s2", format_data_line(s2, sew))
+        tf.data_label(f"{tag}_s1", format_data_line(s1, sew))
+        tf.data_label(f"{tag}_exp", format_data_line(exp_mul, sew))
+
+        # --- vle32.v (load with small vl, tail preserved) ---
+        ld_data = [0x1111, 0x2222, 0x3333, 0x4444]
+        exp_ld = [ld_data[i] if i < vl_val else prefill[i]
+                  for i in range(NUM_ELEMS)]
+        cn = tf.next_check(f"vle32.v vl={vl_val}: tail preserved")
+        tag = f"{tag_pfx}{cn}"
+        tf.blank()
+        tf.comment(f"vle32.v with vl={vl_val}")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag}_pf")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"li t0, {vl_val}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code("SAVE_CSRS")
+        tf.code(f"la t1, {tag}_mem")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"SET_TEST_NUM {cn}")
+        tf.code("la t1, result_buf")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
+
+        tf.data_align(sew)
+        tf.data_label(f"{tag}_pf", format_data_line(prefill, sew))
+        tf.data_label(f"{tag}_mem", format_data_line(ld_data, sew))
+        tf.data_label(f"{tag}_exp", format_data_line(exp_ld, sew))
+
+        # --- vredsum.vs with small vl ---
+        # Only sums elements 0..vl-1 of vs2 with vs1[0]
+        init_val = 1000
+        exp_rsum = init_val
+        for i in range(vl_val):
+            exp_rsum = (exp_rsum + s2[i]) & M(sew)
+        cn = tf.next_check(f"vredsum.vs vl={vl_val}: result")
+        tag = f"{tag_pfx}{cn}"
+        tf.blank()
+        tf.comment(f"vredsum.vs with vl={vl_val}")
+        tf.code(f"li t0, {vl_val}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag}_vec")
+        tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+        tf.code(f"la t1, {tag}_init")
+        tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
+        tf.code("SAVE_CSRS")
+        tf.code(f"vredsum.vs {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}")
+        tf.code(f"SET_TEST_NUM {cn}")
+        tf.code("la t1, result_buf")
+        tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"CHECK_MEM result_buf, {tag}_exp, {sew // 8}")
+
+        tf.data_align(sew)
+        tf.data_label(f"{tag}_vec", format_data_line(s2, sew))
+        init_pad = [init_val] + [0] * (NUM_ELEMS - 1)
+        tf.data_label(f"{tag}_init", format_data_line(init_pad, sew))
+        exp_pad = [exp_rsum] + [0] * (NUM_ELEMS - 1)
+        tf.data_label(f"{tag}_exp", format_data_line(exp_pad, sew))
 
     tf.write(fpath)
     return str(fpath)

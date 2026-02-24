@@ -10,6 +10,7 @@ tests/edge_cases/narrowing_tail.S 2
 tests/edge_cases/reserved_encoding.S 8
 tests/edge_cases/rvv_detect.S 5
 tests/edge_cases/scatter_ordered.S 2
+tests/edge_cases/small_vl.S 12
 tests/edge_cases/stride_negative.S 3
 tests/edge_cases/stride_zero.S 3
 tests/edge_cases/tail_agnostic.S 1
