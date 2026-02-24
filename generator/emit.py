@@ -1627,6 +1627,75 @@ def emit_compare_vv_masked(
     tf.data_label(f"{tag}_w", format_data_line(wp, sew))
 
 
+def emit_compare_vf_masked(
+    tf: TestFile,
+    mnemonic: str,
+    sew: int,
+    test_name: str,
+    vs2: list[int],
+    scalar_bits: int,
+    vd_init_mask: int,
+    mask_bits: int,
+    expected_mask: int,
+    *,
+    csr_check: str = "CHECK_CSRS_UNCHANGED",
+) -> None:
+    """Compare VF with v0.t.  Inactive bits in vd keep vd_init_mask value."""
+    nbytes = NUM_ELEMS * (sew // 8)
+    cn_res = tf.next_check(f"{mnemonic} e{sew} {test_name} masked: wrong mask result")
+    cn_wit = tf.next_check(f"{mnemonic} e{sew} {test_name} masked: witness changed")
+    cn_csr = tf.next_check(f"{mnemonic} e{sew} {test_name} masked: CSR side-effect")
+    tag = f"tc{cn_res}"
+    load_insn = "flw" if sew == 32 else "fld"
+
+    tf.blank()
+    tf.comment(f"Test {cn_res}-{cn_csr}: {mnemonic} SEW={sew} {test_name} (masked)")
+
+    tf.code(f"li t0, {NUM_ELEMS}")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+
+    tf.code(f"la t1, {tag}_s2")
+    tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+    tf.code(f"la t1, {tag}_sc")
+    tf.code(f"{load_insn} fa0, 0(t1)")
+
+    tf.code(f"la t1, {tag}_vdinit")
+    tf.code(f"vlm.v {VREG_DST}, (t1)")
+    tf.code(f"la t1, {tag}_mask")
+    tf.code(f"vlm.v v0, (t1)")
+
+    tf.code(f"la t1, {tag}_w")
+    tf.code(f"vle{sew}.v {VREG_WITNESS}, (t1)")
+    tf.code("SAVE_CSRS")
+
+    tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}, fa0, v0.t")
+
+    tf.code(f"SET_TEST_NUM {cn_res}")
+    tf.code("la t1, result_buf")
+    tf.code(f"vsm.v {VREG_DST}, (t1)")
+    tf.code("lbu t2, 0(t1)")
+    tf.code(f"andi t2, t2, {(1 << NUM_ELEMS) - 1}")
+    tf.code(f"li t3, {expected_mask}")
+    tf.code("FAIL_IF_NE t2, t3")
+
+    tf.code(f"SET_TEST_NUM {cn_wit}")
+    tf.code("la t1, witness_buf")
+    tf.code(f"vse{sew}.v {VREG_WITNESS}, (t1)")
+    tf.code(f"CHECK_MEM witness_buf, {tag}_w, {nbytes}")
+
+    tf.code(f"SET_TEST_NUM {cn_csr}")
+    tf.code(csr_check)
+
+    wp = witness_pattern(sew)
+    tf.data(".align 1")
+    tf.data_label(f"{tag}_mask", f"    .byte {mask_bits}")
+    tf.data_label(f"{tag}_vdinit", f"    .byte {vd_init_mask}")
+    tf.data_align(sew)
+    tf.data_label(f"{tag}_s2", format_data_line(vs2, sew))
+    tf.data_label(f"{tag}_sc", format_data_line([scalar_bits], sew))
+    tf.data_label(f"{tag}_w", format_data_line(wp, sew))
+
+
 # ===================================================================
 # Generic binary: VV overlap form (vd == vs1)
 # ===================================================================

@@ -12,12 +12,18 @@
  *     7 = vmflt.vf e32 neg: wrong mask result
  *     8 = vmflt.vf e32 neg: witness changed
  *     9 = vmflt.vf e32 neg: CSR side-effect
- *    10 = vmflt.vf e64 basic: wrong mask result
- *    11 = vmflt.vf e64 basic: witness changed
- *    12 = vmflt.vf e64 basic: CSR side-effect
- *    13 = vmflt.vf e64 zero: wrong mask result
- *    14 = vmflt.vf e64 zero: witness changed
- *    15 = vmflt.vf e64 zero: CSR side-effect
+ *    10 = vmflt.vf e32 mixed masked: wrong mask result
+ *    11 = vmflt.vf e32 mixed masked: witness changed
+ *    12 = vmflt.vf e32 mixed masked: CSR side-effect
+ *    13 = vmflt.vf e64 basic: wrong mask result
+ *    14 = vmflt.vf e64 basic: witness changed
+ *    15 = vmflt.vf e64 basic: CSR side-effect
+ *    16 = vmflt.vf e64 zero: wrong mask result
+ *    17 = vmflt.vf e64 zero: witness changed
+ *    18 = vmflt.vf e64 zero: CSR side-effect
+ *    19 = vmflt.vf e64 mixed masked: wrong mask result
+ *    20 = vmflt.vf e64 mixed masked: witness changed
+ *    21 = vmflt.vf e64 mixed masked: CSR side-effect
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -98,32 +104,36 @@
     SET_TEST_NUM 9
     CHECK_CSRS_UNCHANGED_FP
 
-    /* Test 10-12: vmflt.vf SEW=64 basic */
+    /* Test 10-12: vmflt.vf SEW=32 mixed (masked) */
     li t0, 4
-    vsetvli t0, t0, e64, m1, tu, mu
+    vsetvli t0, t0, e32, m1, tu, mu
     la t1, tc10_s2
-    vle64.v v16, (t1)
-    la t1, tc10_fsc
-    fld fa0, 0(t1)
+    vle32.v v16, (t1)
+    la t1, tc10_sc
+    flw fa0, 0(t1)
+    la t1, tc10_vdinit
+    vlm.v v8, (t1)
+    la t1, tc10_mask
+    vlm.v v0, (t1)
     la t1, tc10_w
-    vle64.v v24, (t1)
+    vle32.v v24, (t1)
     SAVE_CSRS
-    vmflt.vf v8, v16, fa0
+    vmflt.vf v8, v16, fa0, v0.t
     SET_TEST_NUM 10
     la t1, result_buf
     vsm.v v8, (t1)
     lbu t2, 0(t1)
     andi t2, t2, 15
-    li t3, 15
+    li t3, 11
     FAIL_IF_NE t2, t3
     SET_TEST_NUM 11
     la t1, witness_buf
-    vse64.v v24, (t1)
-    CHECK_MEM witness_buf, tc10_w, 32
+    vse32.v v24, (t1)
+    CHECK_MEM witness_buf, tc10_w, 16
     SET_TEST_NUM 12
     CHECK_CSRS_UNCHANGED_FP
 
-    /* Test 13-15: vmflt.vf SEW=64 zero */
+    /* Test 13-15: vmflt.vf SEW=64 basic */
     li t0, 4
     vsetvli t0, t0, e64, m1, tu, mu
     la t1, tc13_s2
@@ -139,13 +149,67 @@
     vsm.v v8, (t1)
     lbu t2, 0(t1)
     andi t2, t2, 15
-    li t3, 0
+    li t3, 15
     FAIL_IF_NE t2, t3
     SET_TEST_NUM 14
     la t1, witness_buf
     vse64.v v24, (t1)
     CHECK_MEM witness_buf, tc13_w, 32
     SET_TEST_NUM 15
+    CHECK_CSRS_UNCHANGED_FP
+
+    /* Test 16-18: vmflt.vf SEW=64 zero */
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    la t1, tc16_s2
+    vle64.v v16, (t1)
+    la t1, tc16_fsc
+    fld fa0, 0(t1)
+    la t1, tc16_w
+    vle64.v v24, (t1)
+    SAVE_CSRS
+    vmflt.vf v8, v16, fa0
+    SET_TEST_NUM 16
+    la t1, result_buf
+    vsm.v v8, (t1)
+    lbu t2, 0(t1)
+    andi t2, t2, 15
+    li t3, 0
+    FAIL_IF_NE t2, t3
+    SET_TEST_NUM 17
+    la t1, witness_buf
+    vse64.v v24, (t1)
+    CHECK_MEM witness_buf, tc16_w, 32
+    SET_TEST_NUM 18
+    CHECK_CSRS_UNCHANGED_FP
+
+    /* Test 19-21: vmflt.vf SEW=64 mixed (masked) */
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    la t1, tc19_s2
+    vle64.v v16, (t1)
+    la t1, tc19_sc
+    fld fa0, 0(t1)
+    la t1, tc19_vdinit
+    vlm.v v8, (t1)
+    la t1, tc19_mask
+    vlm.v v0, (t1)
+    la t1, tc19_w
+    vle64.v v24, (t1)
+    SAVE_CSRS
+    vmflt.vf v8, v16, fa0, v0.t
+    SET_TEST_NUM 19
+    la t1, result_buf
+    vsm.v v8, (t1)
+    lbu t2, 0(t1)
+    andi t2, t2, 15
+    li t3, 11
+    FAIL_IF_NE t2, t3
+    SET_TEST_NUM 20
+    la t1, witness_buf
+    vse64.v v24, (t1)
+    CHECK_MEM witness_buf, tc19_w, 32
+    SET_TEST_NUM 21
     CHECK_CSRS_UNCHANGED_FP
 
     PASS_TEST
@@ -172,19 +236,43 @@ tc7_fsc:
     .word 0xbf800000
 tc7_w:
     .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
-.align 3
+.align 1
+tc10_mask:
+    .byte 5
+tc10_vdinit:
+    .byte 10
+.align 2
 tc10_s2:
-    .dword 0x3ff0000000000000, 0x4000000000000000, 0x4008000000000000, 0x4010000000000000
-tc10_fsc:
-    .dword 0x4024000000000000
+    .word 0x3f800000, 0x40000000, 0x40400000, 0x40800000
+tc10_sc:
+    .word 0x40200000
 tc10_w:
-    .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
+    .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
 .align 3
 tc13_s2:
     .dword 0x3ff0000000000000, 0x4000000000000000, 0x4008000000000000, 0x4010000000000000
 tc13_fsc:
-    .dword 0x0000000000000000
+    .dword 0x4024000000000000
 tc13_w:
+    .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
+.align 3
+tc16_s2:
+    .dword 0x3ff0000000000000, 0x4000000000000000, 0x4008000000000000, 0x4010000000000000
+tc16_fsc:
+    .dword 0x0000000000000000
+tc16_w:
+    .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
+.align 1
+tc19_mask:
+    .byte 5
+tc19_vdinit:
+    .byte 10
+.align 3
+tc19_s2:
+    .dword 0x3ff0000000000000, 0x4000000000000000, 0x4008000000000000, 0x4010000000000000
+tc19_sc:
+    .dword 0x4004000000000000
+tc19_w:
     .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
 
 .align 4

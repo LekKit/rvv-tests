@@ -13,83 +13,126 @@ from pathlib import Path
 from typing import Callable
 
 from ..common import FP_SEWS, NUM_ELEMS, format_data_line
+from ..common import f32_to_bits as _f32b, f64_to_bits as _f64b
 from ..testfile import TestFile
 from ..emit import (
-    emit_fp_binop_vv, emit_fp_binop_vf, emit_compare_vv, emit_compare_vf,
-    emit_ternary_vv, emit_ternary_vf,
-    emit_binop_vv_overlap, emit_binop_vv_masked,
-    emit_fp_binop_vf_overlap, emit_fp_binop_vf_masked,
-    emit_ternary_vv_overlap, emit_ternary_vv_masked,
+    emit_fp_binop_vv,
+    emit_fp_binop_vf,
+    emit_compare_vv,
+    emit_compare_vf,
+    emit_ternary_vv,
+    emit_ternary_vf,
+    emit_binop_vv_overlap,
+    emit_binop_vv_masked,
+    emit_fp_binop_vf_overlap,
+    emit_fp_binop_vf_masked,
+    emit_ternary_vv_overlap,
+    emit_ternary_vv_masked,
     emit_compare_vv_masked,
-    VREG_DST, VREG_SRC2, VREG_SRC1,
+    emit_compare_vf_masked,
+    VREG_DST,
+    VREG_SRC2,
+    VREG_SRC1,
 )
 from ..vectors import fp_binop_vv, fp_binop_vf, fp_fma_vv, fp_fma_vf
 from ..compute.floating_point import (
-    fadd, fsub, frsub, fmul, fdiv, frdiv,
-    fmin, fmax, fsgnj, fsgnjn, fsgnjx,
-    mfeq, mfne, mflt, mfle, mfgt, mfge,
-    fclass, fsqrt,
-    fmacc, fnmacc, fmsac, fnmsac, fmadd, fnmadd, fmsub, fnmsub,
-    fcvt_xu_f, fcvt_x_f, fcvt_rtz_xu_f, fcvt_rtz_x_f, fcvt_f_xu, fcvt_f_x,
+    fadd,
+    fsub,
+    frsub,
+    fmul,
+    fdiv,
+    frdiv,
+    fmin,
+    fmax,
+    fsgnj,
+    fsgnjn,
+    fsgnjx,
+    mfeq,
+    mfne,
+    mflt,
+    mfle,
+    mfgt,
+    mfge,
+    fclass,
+    fsqrt,
+    fmacc,
+    fnmacc,
+    fmsac,
+    fnmsac,
+    fmadd,
+    fnmadd,
+    fmsub,
+    fnmsub,
+    fcvt_xu_f,
+    fcvt_x_f,
+    fcvt_rtz_xu_f,
+    fcvt_rtz_x_f,
+    fcvt_f_xu,
+    fcvt_f_x,
 )
 
 _FP_BINOP_VV: list[tuple[str, Callable, str]] = [
-    ("vfadd.vv",   fadd,   "float_arith"),
-    ("vfsub.vv",   fsub,   "float_arith"),
-    ("vfmul.vv",   fmul,   "float_arith"),
-    ("vfdiv.vv",   fdiv,   "float_arith"),
-    ("vfmin.vv",   fmin,   "float_minmax"),
-    ("vfmax.vv",   fmax,   "float_minmax"),
-    ("vfsgnj.vv",  fsgnj,  "float_sgnj"),
+    ("vfadd.vv", fadd, "float_arith"),
+    ("vfsub.vv", fsub, "float_arith"),
+    ("vfmul.vv", fmul, "float_arith"),
+    ("vfdiv.vv", fdiv, "float_arith"),
+    ("vfmin.vv", fmin, "float_minmax"),
+    ("vfmax.vv", fmax, "float_minmax"),
+    ("vfsgnj.vv", fsgnj, "float_sgnj"),
     ("vfsgnjn.vv", fsgnjn, "float_sgnj"),
     ("vfsgnjx.vv", fsgnjx, "float_sgnj"),
 ]
 
 _FP_BINOP_VF: list[tuple[str, Callable, str]] = [
-    ("vfadd.vf",   fadd,   "float_arith"),
-    ("vfsub.vf",   fsub,   "float_arith"),
-    ("vfrsub.vf",  frsub,  "float_arith"),
-    ("vfmul.vf",   fmul,   "float_arith"),
-    ("vfdiv.vf",   fdiv,   "float_arith"),
-    ("vfrdiv.vf",  frdiv,  "float_arith"),
-    ("vfmin.vf",   fmin,   "float_minmax"),
-    ("vfmax.vf",   fmax,   "float_minmax"),
-    ("vfsgnj.vf",  fsgnj,  "float_sgnj"),
+    ("vfadd.vf", fadd, "float_arith"),
+    ("vfsub.vf", fsub, "float_arith"),
+    ("vfrsub.vf", frsub, "float_arith"),
+    ("vfmul.vf", fmul, "float_arith"),
+    ("vfdiv.vf", fdiv, "float_arith"),
+    ("vfrdiv.vf", frdiv, "float_arith"),
+    ("vfmin.vf", fmin, "float_minmax"),
+    ("vfmax.vf", fmax, "float_minmax"),
+    ("vfsgnj.vf", fsgnj, "float_sgnj"),
     ("vfsgnjn.vf", fsgnjn, "float_sgnj"),
     ("vfsgnjx.vf", fsgnjx, "float_sgnj"),
 ]
 
 _FP_FMA_VV: list[tuple[str, Callable]] = [
-    ("vfmacc.vv",  fmacc),
+    ("vfmacc.vv", fmacc),
     ("vfnmacc.vv", fnmacc),
-    ("vfmsac.vv",  fmsac),
+    ("vfmsac.vv", fmsac),
     ("vfnmsac.vv", fnmsac),
-    ("vfmadd.vv",  fmadd),
+    ("vfmadd.vv", fmadd),
     ("vfnmadd.vv", fnmadd),
-    ("vfmsub.vv",  fmsub),
+    ("vfmsub.vv", fmsub),
     ("vfnmsub.vv", fnmsub),
 ]
 
 _FP_FMA_VF: list[tuple[str, Callable]] = [
-    ("vfmacc.vf",  fmacc),
+    ("vfmacc.vf", fmacc),
     ("vfnmacc.vf", fnmacc),
-    ("vfmsac.vf",  fmsac),
+    ("vfmsac.vf", fmsac),
     ("vfnmsac.vf", fnmsac),
-    ("vfmadd.vf",  fmadd),
+    ("vfmadd.vf", fmadd),
     ("vfnmadd.vf", fnmadd),
-    ("vfmsub.vf",  fmsub),
+    ("vfmsub.vf", fmsub),
     ("vfnmsub.vf", fnmsub),
 ]
 
 _FP_CMP_VV: list[tuple[str, Callable]] = [
-    ("vmfeq.vv", mfeq), ("vmfne.vv", mfne),
-    ("vmflt.vv", mflt), ("vmfle.vv", mfle),
+    ("vmfeq.vv", mfeq),
+    ("vmfne.vv", mfne),
+    ("vmflt.vv", mflt),
+    ("vmfle.vv", mfle),
 ]
 
 _FP_CMP_VF: list[tuple[str, Callable]] = [
-    ("vmfeq.vf", mfeq), ("vmfne.vf", mfne),
-    ("vmflt.vf", mflt), ("vmfle.vf", mfle),
-    ("vmfgt.vf", mfgt), ("vmfge.vf", mfge),
+    ("vmfeq.vf", mfeq),
+    ("vmfne.vf", mfne),
+    ("vmflt.vf", mflt),
+    ("vmfle.vf", mfle),
+    ("vmfgt.vf", mfgt),
+    ("vmfge.vf", mfge),
 ]
 
 
@@ -98,6 +141,7 @@ def generate(base_dir: Path) -> list[str]:
 
     # --- FP Binary VV ---
     from ..common import f32_to_bits as _b32
+
     for mnemonic, cfn, subdir in _FP_BINOP_VV:
         fname = mnemonic.replace(".", "_") + ".S"
         fpath = base_dir / "tests" / subdir / fname
@@ -113,7 +157,13 @@ def generate(base_dir: Path) -> list[str]:
                 s1_ov = [_b32(0.5), _b32(0.25), _b32(0.125), _b32(0.0625)]
                 exp_ov = [cfn(a, b, sew) for a, b in zip(s2_ov, s1_ov)]
                 emit_binop_vv_overlap(
-                    tf, mnemonic, sew, "basic", s2_ov, s1_ov, exp_ov,
+                    tf,
+                    mnemonic,
+                    sew,
+                    "basic",
+                    s2_ov,
+                    s1_ov,
+                    exp_ov,
                     csr_check="CHECK_CSRS_UNCHANGED_FP",
                 )
                 vd_init_fp = [_b32(100.0)] * 4
@@ -123,8 +173,15 @@ def generate(base_dir: Path) -> list[str]:
                     for i in range(4)
                 ]
                 emit_binop_vv_masked(
-                    tf, mnemonic, sew, "basic",
-                    s2_ov, s1_ov, vd_init_fp, mask_bits, exp_masked,
+                    tf,
+                    mnemonic,
+                    sew,
+                    "basic",
+                    s2_ov,
+                    s1_ov,
+                    vd_init_fp,
+                    mask_bits,
+                    exp_masked,
                     csr_check="CHECK_CSRS_UNCHANGED_FP",
                 )
         tf.write(fpath)
@@ -146,7 +203,13 @@ def generate(base_dir: Path) -> list[str]:
                 sc_ov = _b32(10.0)
                 exp_ov = [cfn(a, sc_ov, sew) for a in s2_ov]
                 emit_fp_binop_vf_overlap(
-                    tf, mnemonic, sew, "basic", s2_ov, sc_ov, exp_ov,
+                    tf,
+                    mnemonic,
+                    sew,
+                    "basic",
+                    s2_ov,
+                    sc_ov,
+                    exp_ov,
                 )
                 vd_init_fp = [_b32(100.0)] * 4
                 mask_bits = 0b1010
@@ -155,8 +218,15 @@ def generate(base_dir: Path) -> list[str]:
                     for i in range(4)
                 ]
                 emit_fp_binop_vf_masked(
-                    tf, mnemonic, sew, "basic",
-                    s2_ov, sc_ov, vd_init_fp, mask_bits, exp_masked,
+                    tf,
+                    mnemonic,
+                    sew,
+                    "basic",
+                    s2_ov,
+                    sc_ov,
+                    vd_init_fp,
+                    mask_bits,
+                    exp_masked,
                 )
         tf.write(fpath)
         generated.append(str(fpath))
@@ -169,8 +239,17 @@ def generate(base_dir: Path) -> list[str]:
         for sew in FP_SEWS:
             for name, vd_init, vs1, vs2 in fp_fma_vv(sew):
                 exp = [cfn(d, s1, s2, sew) for d, s1, s2 in zip(vd_init, vs1, vs2)]
-                emit_ternary_vv(tf, mnemonic, sew, name, vd_init, vs1, vs2, exp,
-                                csr_check="CHECK_CSRS_UNCHANGED_FP")
+                emit_ternary_vv(
+                    tf,
+                    mnemonic,
+                    sew,
+                    name,
+                    vd_init,
+                    vs1,
+                    vs2,
+                    exp,
+                    csr_check="CHECK_CSRS_UNCHANGED_FP",
+                )
 
             # Overlap (vd==vs2) + Masked at e32 only
             if sew == 32:
@@ -178,21 +257,35 @@ def generate(base_dir: Path) -> list[str]:
                 vs1_ov = [_b32(1.0), _b32(2.0), _b32(3.0), _b32(4.0)]
                 exp_ov = [cfn(d, s1, d, sew) for d, s1 in zip(vd_ov, vs1_ov)]
                 emit_ternary_vv_overlap(
-                    tf, mnemonic, sew, "basic", vd_ov, vs1_ov, exp_ov,
+                    tf,
+                    mnemonic,
+                    sew,
+                    "basic",
+                    vd_ov,
+                    vs1_ov,
+                    exp_ov,
                     csr_check="CHECK_CSRS_UNCHANGED_FP",
                 )
                 vd_init_m = [_b32(100.0)] * 4
                 vs2_m = [_b32(10.0), _b32(20.0), _b32(30.0), _b32(40.0)]
                 mask_bits = 0b1010
-                exp_full = [cfn(d, s1, s2, sew)
-                            for d, s1, s2 in zip(vd_init_m, vs1_ov, vs2_m)]
+                exp_full = [
+                    cfn(d, s1, s2, sew) for d, s1, s2 in zip(vd_init_m, vs1_ov, vs2_m)
+                ]
                 exp_masked = [
                     exp_full[i] if (mask_bits >> i) & 1 else vd_init_m[i]
                     for i in range(4)
                 ]
                 emit_ternary_vv_masked(
-                    tf, mnemonic, sew, "basic",
-                    vd_init_m, vs1_ov, vs2_m, mask_bits, exp_masked,
+                    tf,
+                    mnemonic,
+                    sew,
+                    "basic",
+                    vd_init_m,
+                    vs1_ov,
+                    vs2_m,
+                    mask_bits,
+                    exp_masked,
                     csr_check="CHECK_CSRS_UNCHANGED_FP",
                 )
         tf.write(fpath)
@@ -209,8 +302,16 @@ def generate(base_dir: Path) -> list[str]:
                 for i, (a, b) in enumerate(zip(s2, s1)):
                     if cfn(a, b, sew):
                         mask |= 1 << i
-                emit_compare_vv(tf, mnemonic, sew, name, s2, s1, mask,
-                                csr_check="CHECK_CSRS_UNCHANGED_FP")
+                emit_compare_vv(
+                    tf,
+                    mnemonic,
+                    sew,
+                    name,
+                    s2,
+                    s1,
+                    mask,
+                    csr_check="CHECK_CSRS_UNCHANGED_FP",
+                )
 
             # Masked compare at e32 only
             if sew == 32:
@@ -227,8 +328,15 @@ def generate(base_dir: Path) -> list[str]:
                         if (vd_init_mask >> i) & 1:
                             expected_mask |= 1 << i
                 emit_compare_vv_masked(
-                    tf, mnemonic, sew, "mixed",
-                    s2_m, s1_m, vd_init_mask, mask_bits, expected_mask,
+                    tf,
+                    mnemonic,
+                    sew,
+                    "mixed",
+                    s2_m,
+                    s1_m,
+                    vd_init_mask,
+                    mask_bits,
+                    expected_mask,
                     csr_check="CHECK_CSRS_UNCHANGED_FP",
                 )
         tf.write(fpath)
@@ -246,6 +354,32 @@ def generate(base_dir: Path) -> list[str]:
                     if cfn(a, sc_bits, sew):
                         mask |= 1 << i
                 emit_compare_vf(tf, mnemonic, sew, name, s2, sc_bits, mask)
+            # Masked compare VF: mask=0b0101
+            mask_bits = 0b0101
+            vd_init_mask = 0b1010
+            b = _f32b if sew == 32 else _f64b
+            s2_m = [b(1.0), b(2.0), b(3.0), b(4.0)]
+            sc_m = b(2.5)
+            expected_mask = 0
+            for i in range(4):
+                if (mask_bits >> i) & 1:
+                    if cfn(s2_m[i], sc_m, sew):
+                        expected_mask |= 1 << i
+                else:
+                    if (vd_init_mask >> i) & 1:
+                        expected_mask |= 1 << i
+            emit_compare_vf_masked(
+                tf,
+                mnemonic,
+                sew,
+                "mixed",
+                s2_m,
+                sc_m,
+                vd_init_mask,
+                mask_bits,
+                expected_mask,
+                csr_check="CHECK_CSRS_UNCHANGED_FP",
+            )
         tf.write(fpath)
         generated.append(str(fpath))
 
@@ -257,22 +391,42 @@ def generate(base_dir: Path) -> list[str]:
         for sew in FP_SEWS:
             for name, vd_init, sc_bits, vs2 in fp_fma_vf(sew):
                 exp = [cfn(d, sc_bits, s2, sew) for d, s2 in zip(vd_init, vs2)]
-                emit_ternary_vf(tf, mnemonic, sew, name, vd_init, sc_bits, vs2, exp,
-                                csr_check="CHECK_CSRS_UNCHANGED_FP")
+                emit_ternary_vf(
+                    tf,
+                    mnemonic,
+                    sew,
+                    name,
+                    vd_init,
+                    sc_bits,
+                    vs2,
+                    exp,
+                    csr_check="CHECK_CSRS_UNCHANGED_FP",
+                )
         tf.write(fpath)
         generated.append(str(fpath))
 
     # --- FP sqrt ---
     from ..common import f32_to_bits, f64_to_bits
+
     for sew in FP_SEWS:
         mnemonic = "vfsqrt.v"
         fname = f"vfsqrt_e{sew}.S"
         fpath = base_dir / "tests" / "float_misc" / fname
         tf = TestFile(mnemonic, f"FP sqrt SEW={sew}")
         if sew == 32:
-            src = [f32_to_bits(1.0), f32_to_bits(4.0), f32_to_bits(9.0), f32_to_bits(16.0)]
+            src = [
+                f32_to_bits(1.0),
+                f32_to_bits(4.0),
+                f32_to_bits(9.0),
+                f32_to_bits(16.0),
+            ]
         else:
-            src = [f64_to_bits(1.0), f64_to_bits(4.0), f64_to_bits(9.0), f64_to_bits(16.0)]
+            src = [
+                f64_to_bits(1.0),
+                f64_to_bits(4.0),
+                f64_to_bits(9.0),
+                f64_to_bits(16.0),
+            ]
         exp = [fsqrt(v, sew) for v in src]
         nbytes = NUM_ELEMS * (sew // 8)
         cn_res = tf.next_check(f"vfsqrt.v e{sew}: result")
@@ -300,16 +454,17 @@ def generate(base_dir: Path) -> list[str]:
     # --- FP classify ---
     for sew in FP_SEWS:
         import math
+
         mnemonic = "vfclass.v"
         fname = f"vfclass_e{sew}.S"
         fpath = base_dir / "tests" / "float_misc" / fname
         tf = TestFile(mnemonic, f"FP classify SEW={sew}")
         if sew == 32:
             b = f32_to_bits
-            src = [b(1.0), b(-1.0), b(0.0), b(float('inf'))]
+            src = [b(1.0), b(-1.0), b(0.0), b(float("inf"))]
         else:
             b = f64_to_bits
-            src = [b(1.0), b(-1.0), b(0.0), b(float('inf'))]
+            src = [b(1.0), b(-1.0), b(0.0), b(float("inf"))]
         exp = [fclass(v, sew) for v in src]
         nbytes = NUM_ELEMS * (sew // 8)
         cn_res = tf.next_check(f"vfclass.v e{sew}: result")
@@ -339,6 +494,7 @@ def generate(base_dir: Path) -> list[str]:
     # so the 7-bit-accurate hardware result matches our exact computation.
     # Powers of 4 give exact results: 1/sqrt(4^n) = 2^{-n}.
     from ..compute.floating_point import frsqrt7, frec7
+
     for sew in FP_SEWS:
         mnemonic = "vfrsqrt7.v"
         fname = f"vfrsqrt7_e{sew}.S"
@@ -346,11 +502,19 @@ def generate(base_dir: Path) -> list[str]:
         tf = TestFile(mnemonic, f"FP reciprocal sqrt estimate SEW={sew}")
         if sew == 32:
             # 1/sqrt(1)=1, 1/sqrt(4)=0.5, 1/sqrt(0.25)=2, 1/sqrt(16)=0.25
-            src = [f32_to_bits(1.0), f32_to_bits(4.0),
-                   f32_to_bits(0.25), f32_to_bits(16.0)]
+            src = [
+                f32_to_bits(1.0),
+                f32_to_bits(4.0),
+                f32_to_bits(0.25),
+                f32_to_bits(16.0),
+            ]
         else:
-            src = [f64_to_bits(1.0), f64_to_bits(4.0),
-                   f64_to_bits(0.25), f64_to_bits(16.0)]
+            src = [
+                f64_to_bits(1.0),
+                f64_to_bits(4.0),
+                f64_to_bits(0.25),
+                f64_to_bits(16.0),
+            ]
         exp = [frsqrt7(v, sew) for v in src]
         nbytes = NUM_ELEMS * (sew // 8)
         cn_res = tf.next_check(f"vfrsqrt7.v e{sew}: result")
@@ -383,11 +547,19 @@ def generate(base_dir: Path) -> list[str]:
         fpath = base_dir / "tests" / "float_misc" / fname
         tf = TestFile(mnemonic, f"FP reciprocal estimate SEW={sew}")
         if sew == 32:
-            src = [f32_to_bits(1.0), f32_to_bits(2.0),
-                   f32_to_bits(4.0), f32_to_bits(0.5)]
+            src = [
+                f32_to_bits(1.0),
+                f32_to_bits(2.0),
+                f32_to_bits(4.0),
+                f32_to_bits(0.5),
+            ]
         else:
-            src = [f64_to_bits(1.0), f64_to_bits(2.0),
-                   f64_to_bits(4.0), f64_to_bits(0.5)]
+            src = [
+                f64_to_bits(1.0),
+                f64_to_bits(2.0),
+                f64_to_bits(4.0),
+                f64_to_bits(0.5),
+            ]
         exp = [frec7(v, sew) for v in src]
         nbytes = NUM_ELEMS * (sew // 8)
         cn_res = tf.next_check(f"vfrec7.v e{sew}: result")
@@ -414,12 +586,12 @@ def generate(base_dir: Path) -> list[str]:
 
     # --- FP conversions (single-width) ---
     _CVT_OPS: list[tuple[str, Callable]] = [
-        ("vfcvt.xu.f.v",     fcvt_xu_f),
-        ("vfcvt.x.f.v",      fcvt_x_f),
+        ("vfcvt.xu.f.v", fcvt_xu_f),
+        ("vfcvt.x.f.v", fcvt_x_f),
         ("vfcvt.rtz.xu.f.v", fcvt_rtz_xu_f),
-        ("vfcvt.rtz.x.f.v",  fcvt_rtz_x_f),
-        ("vfcvt.f.xu.v",     fcvt_f_xu),
-        ("vfcvt.f.x.v",      fcvt_f_x),
+        ("vfcvt.rtz.x.f.v", fcvt_rtz_x_f),
+        ("vfcvt.f.xu.v", fcvt_f_xu),
+        ("vfcvt.f.x.v", fcvt_f_x),
     ]
     for mnemonic, cfn in _CVT_OPS:
         fname = mnemonic.replace(".", "_") + ".S"
