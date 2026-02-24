@@ -568,6 +568,66 @@ def emit_reduction(
     tf.data_label(f"{tag}_w", format_data_line(wp, sew))
 
 
+def emit_reduction_masked(
+    tf: TestFile,
+    mnemonic: str,
+    sew: int,
+    test_name: str,
+    scalar_init: int,
+    vec: list[int],
+    mask_bits: int,
+    expected_scalar: int,
+    *,
+    csr_check: str = "CHECK_CSRS_UNCHANGED",
+) -> None:
+    """Test masked reduction: only active elements participate."""
+    nbytes = NUM_ELEMS * (sew // 8)
+    cn_res = tf.next_check(f"{mnemonic} e{sew} {test_name} masked: wrong result")
+    cn_wit = tf.next_check(f"{mnemonic} e{sew} {test_name} masked: witness changed")
+    cn_csr = tf.next_check(f"{mnemonic} e{sew} {test_name} masked: CSR side-effect")
+    tag = f"tc{cn_res}"
+
+    tf.blank()
+    tf.comment(f"Test {cn_res}-{cn_csr}: {mnemonic} SEW={sew} {test_name} (masked)")
+
+    tf.code(f"li t0, {NUM_ELEMS}")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+
+    tf.code(f"la t1, {tag}_vec")
+    tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+    tf.code(f"la t1, {tag}_init")
+    tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
+    tf.code(f"la t1, {tag}_mask")
+    tf.code("vlm.v v0, (t1)")
+    tf.code(f"la t1, {tag}_w")
+    tf.code(f"vle{sew}.v {VREG_WITNESS}, (t1)")
+
+    tf.code("SAVE_CSRS")
+    tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}, v0.t")
+
+    tf.code(f"SET_TEST_NUM {cn_res}")
+    tf.code("la t1, result_buf")
+    tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_exp, {sew // 8}")
+
+    tf.code(f"SET_TEST_NUM {cn_wit}")
+    tf.code("la t1, witness_buf")
+    tf.code(f"vse{sew}.v {VREG_WITNESS}, (t1)")
+    tf.code(f"CHECK_MEM witness_buf, {tag}_w, {nbytes}")
+
+    tf.code(f"SET_TEST_NUM {cn_csr}")
+    tf.code(csr_check)
+
+    wp = witness_pattern(sew)
+    tf.data(".align 1")
+    tf.data_label(f"{tag}_mask", f"    .byte {mask_bits}")
+    tf.data_align(sew)
+    tf.data_label(f"{tag}_vec", format_data_line(vec, sew))
+    tf.data_label(f"{tag}_init", format_data_line([scalar_init] + [0] * (NUM_ELEMS - 1), sew))
+    tf.data_label(f"{tag}_exp", format_data_line([expected_scalar] + [0] * (NUM_ELEMS - 1), sew))
+    tf.data_label(f"{tag}_w", format_data_line(wp, sew))
+
+
 # ===================================================================
 # Mask-register logical  (mm form)
 # ===================================================================

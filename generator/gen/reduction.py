@@ -13,7 +13,7 @@ from typing import Callable
 
 from ..common import SEWS, FP_SEWS, WIDENING_SEWS, M, S, U, NUM_ELEMS, format_data_line
 from ..testfile import TestFile
-from ..emit import emit_reduction, VREG_DST, VREG_SRC2, VREG_SRC1
+from ..emit import emit_reduction, emit_reduction_masked, VREG_DST, VREG_SRC2, VREG_SRC1
 from ..vectors import reduction_int
 from ..compute.floating_point import fredosum, fredusum, fredmax, fredmin
 
@@ -29,37 +29,44 @@ def _ireduce(op: Callable, init: int, vec: list[int], sew: int) -> int:
 def _isum(a: int, b: int, sew: int) -> int:
     return U(a + b, sew)
 
+
 def _imaxu(a: int, b: int, sew: int) -> int:
     return max(U(a, sew), U(b, sew))
+
 
 def _imax(a: int, b: int, sew: int) -> int:
     return U(max(S(a, sew), S(b, sew)), sew)
 
+
 def _iminu(a: int, b: int, sew: int) -> int:
     return min(U(a, sew), U(b, sew))
+
 
 def _imin(a: int, b: int, sew: int) -> int:
     return U(min(S(a, sew), S(b, sew)), sew)
 
+
 def _iand(a: int, b: int, sew: int) -> int:
     return a & b & M(sew)
 
+
 def _ior(a: int, b: int, sew: int) -> int:
     return (a | b) & M(sew)
+
 
 def _ixor(a: int, b: int, sew: int) -> int:
     return (a ^ b) & M(sew)
 
 
 _INT_REDUCTIONS: list[tuple[str, Callable]] = [
-    ("vredsum.vs",  _isum),
+    ("vredsum.vs", _isum),
     ("vredmaxu.vs", _imaxu),
-    ("vredmax.vs",  _imax),
+    ("vredmax.vs", _imax),
     ("vredminu.vs", _iminu),
-    ("vredmin.vs",  _imin),
-    ("vredand.vs",  _iand),
-    ("vredor.vs",   _ior),
-    ("vredxor.vs",  _ixor),
+    ("vredmin.vs", _imin),
+    ("vredand.vs", _iand),
+    ("vredor.vs", _ior),
+    ("vredxor.vs", _ixor),
 ]
 
 
@@ -75,17 +82,32 @@ def generate(base_dir: Path) -> list[str]:
             for name, init, vec in reduction_int(sew):
                 exp = _ireduce(op_fn, init, vec, sew)
                 emit_reduction(tf, mnemonic, sew, name, init, vec, exp)
+            # Masked test: mask=0b0101, only elements 0,2 participate
+            mask_bits = 0b0101
+            sm = M(sew)
+            vec_m = [10, 20, 30, 40]
+            vec_m = [v & sm for v in vec_m]
+            init_m = 100 & sm
+            active = [vec_m[i] for i in range(NUM_ELEMS) if mask_bits & (1 << i)]
+            exp_m = init_m
+            for v in active:
+                exp_m = op_fn(exp_m, v, sew)
+            exp_m = U(exp_m, sew)
+            emit_reduction_masked(
+                tf, mnemonic, sew, "basic", init_m, vec_m, mask_bits, exp_m
+            )
         fpath = out / fname
         tf.write(fpath)
         generated.append(str(fpath))
 
     # --- FP reductions ---
     from ..common import f32_to_bits, f64_to_bits
+
     _FP_RED: list[tuple[str, Callable]] = [
         ("vfredosum.vs", fredosum),
         ("vfredusum.vs", fredusum),
-        ("vfredmax.vs",  fredmax),
-        ("vfredmin.vs",  fredmin),
+        ("vfredmax.vs", fredmax),
+        ("vfredmin.vs", fredmin),
     ]
     for mnemonic, cfn in _FP_RED:
         fname = mnemonic.replace(".", "_") + ".S"
@@ -100,8 +122,31 @@ def generate(base_dir: Path) -> list[str]:
                 init = b(0.0)
                 vec = [b(1.0), b(2.0), b(3.0), b(4.0)]
             exp = cfn(init, vec, sew)
-            emit_reduction(tf, mnemonic, sew, "basic", init, vec, exp,
-                           csr_check="CHECK_CSRS_UNCHANGED_FP")
+            emit_reduction(
+                tf,
+                mnemonic,
+                sew,
+                "basic",
+                init,
+                vec,
+                exp,
+                csr_check="CHECK_CSRS_UNCHANGED_FP",
+            )
+            # Masked FP reduction: mask=0b0101, only elements 0,2 participate
+            mask_bits = 0b0101
+            masked_vec = [vec[i] for i in range(NUM_ELEMS) if mask_bits & (1 << i)]
+            exp_m = cfn(init, masked_vec, sew)
+            emit_reduction_masked(
+                tf,
+                mnemonic,
+                sew,
+                "basic",
+                init,
+                vec,
+                mask_bits,
+                exp_m,
+                csr_check="CHECK_CSRS_UNCHANGED_FP",
+            )
         fpath = out / fname
         tf.write(fpath)
         generated.append(str(fpath))
@@ -118,8 +163,8 @@ def generate(base_dir: Path) -> list[str]:
             # Test data: source elements at SEW, accumulator at 2*SEW
             test_cases_w = [
                 ("basic", 0, [1, 2, 3, 4]),
-                ("init",  100, [1, 2, 3, 4]),
-                ("max",   0, [m, m, m, m]),
+                ("init", 100, [1, 2, 3, 4]),
+                ("max", 0, [m, m, m, m]),
             ]
             for name, init_val, vec in test_cases_w:
                 # Compute widening sum
@@ -163,12 +208,14 @@ def generate(base_dir: Path) -> list[str]:
 
                 tf.data_align(dsew)
                 tf.data_label(f"{tag}_vec", format_data_line(vec, sew))
-                tf.data_label(f"{tag}_init",
-                              format_data_line(
-                                  [init_val] + [0] * (NUM_ELEMS - 1), dsew))
-                tf.data_label(f"{tag}_exp",
-                              format_data_line(
-                                  [exp_scalar] + [0] * (NUM_ELEMS - 1), dsew))
+                tf.data_label(
+                    f"{tag}_init",
+                    format_data_line([init_val] + [0] * (NUM_ELEMS - 1), dsew),
+                )
+                tf.data_label(
+                    f"{tag}_exp",
+                    format_data_line([exp_scalar] + [0] * (NUM_ELEMS - 1), dsew),
+                )
 
         fpath = out / fname
         tf.write(fpath)
@@ -176,6 +223,7 @@ def generate(base_dir: Path) -> list[str]:
 
     # --- Widening FP reductions ---
     from ..compute.floating_point import fwredosum, fwredusum
+
     _WFP_RED: list[tuple[str, object]] = [
         ("vfwredosum.vs", fwredosum),
         ("vfwredusum.vs", fwredusum),
@@ -218,10 +266,12 @@ def generate(base_dir: Path) -> list[str]:
 
         tf.data_align(dsew)
         tf.data_label(f"{tag}_vec", format_data_line(vec, sew))
-        tf.data_label(f"{tag}_init",
-                      format_data_line([init_val] + [0] * (NUM_ELEMS - 1), dsew))
-        tf.data_label(f"{tag}_exp",
-                      format_data_line([exp] + [0] * (NUM_ELEMS - 1), dsew))
+        tf.data_label(
+            f"{tag}_init", format_data_line([init_val] + [0] * (NUM_ELEMS - 1), dsew)
+        )
+        tf.data_label(
+            f"{tag}_exp", format_data_line([exp] + [0] * (NUM_ELEMS - 1), dsew)
+        )
 
         fpath = out / fname
         tf.write(fpath)
