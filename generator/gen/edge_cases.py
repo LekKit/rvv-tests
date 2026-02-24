@@ -3125,6 +3125,64 @@ def _gen_vsetvl_edge_cases(out: Path) -> str:
         tf.code(f"vsetvli t0, x0, {esew}, {elmul}, ta, ma")
         tf.code("FAIL_IF_Z t0")  # vl=0 means vill was set
 
+    # Test 7: invalid SEW/LMUL combos must set vill
+    # SEW > LMUL * ELEN. For ELEN=64:
+    # e32/mf4 → 32 > 64/4=16 → invalid
+    # e64/mf2 → 64 > 64/2=32 → invalid
+    # e16/mf8 → 16 > 64/8=8 → invalid
+    # e64/mf4 → 64 > 16 → invalid
+    # e64/mf8 → 64 > 8 → invalid
+    # e32/mf8 → 32 > 8 → invalid
+    # We encode vtype manually since the assembler may reject these.
+    # vtype encoding: bits[5:3]=vsew(log2), bits[2:0]=vlmul(signed)
+    # vsew: 0=e8, 1=e16, 2=e32, 3=e64
+    # vlmul: 5=mf8(=-3), 6=mf4(=-2), 7=mf2(=-1), 0=m1, 1=m2, 2=m4, 3=m8
+    # bits[7]=vta, bits[6]=vma
+    invalid_vtypes = [
+        ("e32/mf4", (2 << 3) | 6 | (1 << 7) | (1 << 6)),  # vsew=2, vlmul=6(mf4)
+        ("e64/mf2", (3 << 3) | 7 | (1 << 7) | (1 << 6)),  # vsew=3, vlmul=7(mf2)
+        ("e16/mf8", (1 << 3) | 5 | (1 << 7) | (1 << 6)),  # vsew=1, vlmul=5(mf8)
+        ("e64/mf4", (3 << 3) | 6 | (1 << 7) | (1 << 6)),  # vsew=3, vlmul=6(mf4)
+        ("e64/mf8", (3 << 3) | 5 | (1 << 7) | (1 << 6)),  # vsew=3, vlmul=5(mf8)
+        ("e32/mf8", (2 << 3) | 5 | (1 << 7) | (1 << 6)),  # vsew=2, vlmul=5(mf8)
+    ]
+    cn = tf.next_check("invalid SEW/LMUL did NOT set vill")
+    tf.blank()
+    tf.comment("Invalid SEW/LMUL combos must set vill")
+    tf.code(f"SET_TEST_NUM {cn}")
+    for name, vtype_val in invalid_vtypes:
+        tf.comment(f"  {name} (vtype={vtype_val:#x})")
+        tf.code(f"li t1, {vtype_val}")
+        tf.code("li t0, 4")
+        tf.code("vsetvl t0, t0, t1")
+        # vl should be 0 (vill set)
+        tf.code("FAIL_IF_NZ t0")
+
+    # Test 8: vsetvl register-register form (vsetvl rd, rs1, rs2)
+    cn = tf.next_check("vsetvl rd, rs1, rs2: vl wrong")
+    tf.blank()
+    tf.comment("vsetvl register-register form")
+    # Encode e32/m1/ta/ma as vtype value: vsew=2, vlmul=0, vta=1, vma=1
+    vtype_e32m1 = (2 << 3) | 0 | (1 << 7) | (1 << 6)
+    tf.code(f"li t1, {vtype_e32m1}")
+    tf.code("li t0, 4")
+    tf.code("vsetvl t0, t0, t1")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("li t2, 4")
+    tf.code("FAIL_IF_NE t0, t2")
+    # Verify vtype is correct by doing a vadd
+    cn2 = tf.next_check("vsetvl rd, rs1, rs2: vadd with configured vtype wrong")
+    tf.code(f"SET_TEST_NUM {cn2}")
+    tf.code("vmv.v.i v16, 10")
+    tf.code("vmv.v.i v20, 5")
+    tf.code("vadd.vv v8, v16, v20")
+    tf.code("la t1, result_buf")
+    tf.code("vse32.v v8, (t1)")
+    # All 4 elements should be 15
+    tf.code("li t2, 15")
+    tf.code("lw t3, 0(t1)")
+    tf.code("FAIL_IF_NE t3, t2")
+
     tf.write(fpath)
     return str(fpath)
 
@@ -3257,7 +3315,8 @@ def _gen_small_vl(out: Path) -> str:
         "Small vl edge cases",
         "Verifies correct behavior with vl=1, vl=2, vl=3 for "
         "representative instructions (vadd, vmul, vand, vle32, vse32, "
-        "vslidedown, vredsum). Tail elements must be preserved (tu).")
+        "vslidedown, vredsum). Tail elements must be preserved (tu).",
+    )
 
     sew = 32
     prefill = [0xAAAA_AAAA, 0xBBBB_BBBB, 0xCCCC_CCCC, 0xDDDD_DDDD]
@@ -3267,8 +3326,10 @@ def _gen_small_vl(out: Path) -> str:
 
     for vl_val in [1, 2, 3]:
         # --- vadd.vv ---
-        exp_add = [(s2[i] + s1[i]) & M(sew) if i < vl_val else prefill[i]
-                   for i in range(NUM_ELEMS)]
+        exp_add = [
+            (s2[i] + s1[i]) & M(sew) if i < vl_val else prefill[i]
+            for i in range(NUM_ELEMS)
+        ]
         cn = tf.next_check(f"vadd.vv vl={vl_val}: result")
         tag = f"{tag_pfx}{cn}"
         tf.blank()
@@ -3301,8 +3362,10 @@ def _gen_small_vl(out: Path) -> str:
         tf.data_label(f"{tag}_exp", format_data_line(exp_add, sew))
 
         # --- vmul.vv ---
-        exp_mul = [(s2[i] * s1[i]) & M(sew) if i < vl_val else prefill[i]
-                   for i in range(NUM_ELEMS)]
+        exp_mul = [
+            (s2[i] * s1[i]) & M(sew) if i < vl_val else prefill[i]
+            for i in range(NUM_ELEMS)
+        ]
         cn = tf.next_check(f"vmul.vv vl={vl_val}: result")
         tag = f"{tag_pfx}{cn}"
         tf.blank()
@@ -3334,8 +3397,7 @@ def _gen_small_vl(out: Path) -> str:
 
         # --- vle32.v (load with small vl, tail preserved) ---
         ld_data = [0x1111, 0x2222, 0x3333, 0x4444]
-        exp_ld = [ld_data[i] if i < vl_val else prefill[i]
-                  for i in range(NUM_ELEMS)]
+        exp_ld = [ld_data[i] if i < vl_val else prefill[i] for i in range(NUM_ELEMS)]
         cn = tf.next_check(f"vle32.v vl={vl_val}: tail preserved")
         tag = f"{tag_pfx}{cn}"
         tf.blank()
