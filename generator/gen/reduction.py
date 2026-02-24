@@ -217,6 +217,56 @@ def generate(base_dir: Path) -> list[str]:
                     format_data_line([exp_scalar] + [0] * (NUM_ELEMS - 1), dsew),
                 )
 
+        # Masked widening reduction: mask=0b0101
+        mask_bits = 0b0101
+        for sew in WIDENING_SEWS:
+            dsew = 2 * sew
+            m = M(sew)
+            vec_m = [10, 20, 30, 40]
+            vec_m = [v & m for v in vec_m]
+            init_m = 100
+            active = [vec_m[i] for i in range(NUM_ELEMS) if mask_bits & (1 << i)]
+            acc = U(init_m, dsew)
+            for v in active:
+                if is_signed:
+                    acc = U(S(acc, dsew) + S(v, sew), dsew)
+                else:
+                    acc = U(U(acc, dsew) + U(v, sew), dsew)
+            exp_m = acc
+            nbytes_d = dsew // 8
+            cn = tf.next_check(f"{mnemonic} e{sew} masked: result")
+            tag = f"tc{cn}"
+            tf.blank()
+            tf.comment(f"Masked {mnemonic} SEW={sew}")
+            tf.code(f"li t0, {NUM_ELEMS}")
+            tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+            tf.code(f"la t1, {tag}_vec")
+            tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+            tf.code(f"la t1, {tag}_mask")
+            tf.code("vlm.v v0, (t1)")
+            tf.code(f"vsetvli t0, t0, e{dsew}, m1, tu, mu")
+            tf.code(f"la t1, {tag}_init")
+            tf.code(f"vle{dsew}.v {VREG_SRC1}, (t1)")
+            tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+            tf.code("SAVE_CSRS")
+            tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}, v0.t")
+            tf.code(f"SET_TEST_NUM {cn}")
+            tf.code(f"li t0, {NUM_ELEMS}")
+            tf.code(f"vsetvli t0, t0, e{dsew}, m1, tu, mu")
+            tf.code("la t1, result_buf")
+            tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
+            tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes_d}")
+            tf.data(".align 1")
+            tf.data_label(f"{tag}_mask", f"    .byte {mask_bits}")
+            tf.data_align(dsew)
+            tf.data_label(f"{tag}_vec", format_data_line(vec_m, sew))
+            tf.data_label(
+                f"{tag}_init", format_data_line([init_m] + [0] * (NUM_ELEMS - 1), dsew)
+            )
+            tf.data_label(
+                f"{tag}_exp", format_data_line([exp_m] + [0] * (NUM_ELEMS - 1), dsew)
+            )
+
         fpath = out / fname
         tf.write(fpath)
         generated.append(str(fpath))
@@ -271,6 +321,43 @@ def generate(base_dir: Path) -> list[str]:
         )
         tf.data_label(
             f"{tag}_exp", format_data_line([exp] + [0] * (NUM_ELEMS - 1), dsew)
+        )
+
+        # Masked widening FP reduction: mask=0b0101
+        mask_bits = 0b0101
+        masked_vec = [vec[i] for i in range(NUM_ELEMS) if mask_bits & (1 << i)]
+        exp_wfm = cfn(init_val, masked_vec, sew)
+        cn = tf.next_check(f"{mnemonic} masked: result")
+        tag = f"tc{cn}"
+        tf.blank()
+        tf.comment(f"Masked {mnemonic}")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag}_vec")
+        tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+        tf.code(f"la t1, {tag}_mask")
+        tf.code("vlm.v v0, (t1)")
+        tf.code(f"vsetvli t0, t0, e{dsew}, m1, tu, mu")
+        tf.code(f"la t1, {tag}_init")
+        tf.code(f"vle{dsew}.v {VREG_SRC1}, (t1)")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code("SAVE_CSRS")
+        tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}, v0.t")
+        tf.code(f"SET_TEST_NUM {cn}")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{dsew}, m1, tu, mu")
+        tf.code("la t1, result_buf")
+        tf.code(f"vse{dsew}.v {VREG_DST}, (t1)")
+        tf.code(f"CHECK_MEM result_buf, {tag}_exp, {dsew // 8}")
+        tf.data(".align 1")
+        tf.data_label(f"{tag}_mask", f"    .byte {mask_bits}")
+        tf.data_align(dsew)
+        tf.data_label(f"{tag}_vec", format_data_line(vec, sew))
+        tf.data_label(
+            f"{tag}_init", format_data_line([init_val] + [0] * (NUM_ELEMS - 1), dsew)
+        )
+        tf.data_label(
+            f"{tag}_exp", format_data_line([exp_wfm] + [0] * (NUM_ELEMS - 1), dsew)
         )
 
         fpath = out / fname

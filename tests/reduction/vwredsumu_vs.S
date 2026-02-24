@@ -21,6 +21,9 @@
  *    16 = vwredsumu.vs e32 init: CSR side-effect
  *    17 = vwredsumu.vs e32 max: result
  *    18 = vwredsumu.vs e32 max: CSR side-effect
+ *    19 = vwredsumu.vs e8 masked: result
+ *    20 = vwredsumu.vs e16 masked: result
+ *    21 = vwredsumu.vs e32 masked: result
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -206,6 +209,66 @@
     vse64.v v8, (t1)
     CHECK_MEM result_buf, tc17_exp, 8
 
+    /* Masked vwredsumu.vs SEW=8 */
+    li t0, 4
+    vsetvli t0, t0, e8, m1, tu, mu
+    la t1, tc19_vec
+    vle8.v v16, (t1)
+    la t1, tc19_mask
+    vlm.v v0, (t1)
+    vsetvli t0, t0, e16, m1, tu, mu
+    la t1, tc19_init
+    vle16.v v20, (t1)
+    vsetvli t0, t0, e8, m1, tu, mu
+    SAVE_CSRS
+    vwredsumu.vs v8, v16, v20, v0.t
+    SET_TEST_NUM 19
+    li t0, 4
+    vsetvli t0, t0, e16, m1, tu, mu
+    la t1, result_buf
+    vse16.v v8, (t1)
+    CHECK_MEM result_buf, tc19_exp, 2
+
+    /* Masked vwredsumu.vs SEW=16 */
+    li t0, 4
+    vsetvli t0, t0, e16, m1, tu, mu
+    la t1, tc20_vec
+    vle16.v v16, (t1)
+    la t1, tc20_mask
+    vlm.v v0, (t1)
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc20_init
+    vle32.v v20, (t1)
+    vsetvli t0, t0, e16, m1, tu, mu
+    SAVE_CSRS
+    vwredsumu.vs v8, v16, v20, v0.t
+    SET_TEST_NUM 20
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, result_buf
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc20_exp, 4
+
+    /* Masked vwredsumu.vs SEW=32 */
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc21_vec
+    vle32.v v16, (t1)
+    la t1, tc21_mask
+    vlm.v v0, (t1)
+    vsetvli t0, t0, e64, m1, tu, mu
+    la t1, tc21_init
+    vle64.v v20, (t1)
+    vsetvli t0, t0, e32, m1, tu, mu
+    SAVE_CSRS
+    vwredsumu.vs v8, v16, v20, v0.t
+    SET_TEST_NUM 21
+    li t0, 4
+    vsetvli t0, t0, e64, m1, tu, mu
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc21_exp, 8
+
     PASS_TEST
 
 .data
@@ -272,6 +335,36 @@ tc17_init:
     .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
 tc17_exp:
     .dword 0x00000003fffffffc, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
+.align 1
+tc19_mask:
+    .byte 5
+.align 1
+tc19_vec:
+    .byte 0x0a, 0x14, 0x1e, 0x28
+tc19_init:
+    .half 0x0064, 0x0000, 0x0000, 0x0000
+tc19_exp:
+    .half 0x008c, 0x0000, 0x0000, 0x0000
+.align 1
+tc20_mask:
+    .byte 5
+.align 2
+tc20_vec:
+    .half 0x000a, 0x0014, 0x001e, 0x0028
+tc20_init:
+    .word 0x00000064, 0x00000000, 0x00000000, 0x00000000
+tc20_exp:
+    .word 0x0000008c, 0x00000000, 0x00000000, 0x00000000
+.align 1
+tc21_mask:
+    .byte 5
+.align 3
+tc21_vec:
+    .word 0x0000000a, 0x00000014, 0x0000001e, 0x00000028
+tc21_init:
+    .dword 0x0000000000000064, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
+tc21_exp:
+    .dword 0x000000000000008c, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000
 
 .align 4
 result_buf:  .space 256
