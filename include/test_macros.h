@@ -15,9 +15,9 @@
  *   Clobbers: a0-a5, a7 (depending on macro)
  *
  * Syscall numbers (riscv64):
- *   57  = close      215 = munmap    222 = mmap
- *   46  = ftruncate  220 = clone     260 = wait4
- *   93  = exit       279 = memfd_create
+ *   46  = ftruncate   93 = exit       222 = mmap
+ *   57  = close      215 = munmap    226 = mprotect
+ *   220 = clone      260 = wait4     279 = memfd_create
  * ============================================================ */
 
 /* __NR_exit: terminate process.  Does not return.
@@ -124,6 +124,18 @@
     mv a4, \fd_reg
     li a5, \offset
     li a7, 222
+    ecall
+.endm
+
+/* __NR_mprotect: change memory protection.  Result in a0 (0 on success).
+ * addr_reg: register holding page-aligned address
+ * Clobbers: a0-a2, a7
+ */
+.macro SYS_MPROTECT addr_reg, len, prot
+    mv a0, \addr_reg
+    li a1, \len
+    li a2, \prot
+    li a7, 226
     ecall
 .endm
 
