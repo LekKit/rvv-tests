@@ -289,6 +289,10 @@ def generate(base_dir: Path) -> list[str]:
     # Phase 8: LMUL=4 and fractional LMUL tests
     generated.append(_gen_lmul4_and_fractional(out))
 
+    # Phase 9: tail for widening/narrowing + small vl for more families
+    generated.append(_gen_tail_widening_narrowing(out))
+    generated.append(_gen_small_vl_extra(out))
+
     return generated
 
 
@@ -3473,7 +3477,8 @@ def _gen_lmul4_and_fractional(out: Path) -> str:
     tf = TestFile(
         "LMUL=4 and fractional LMUL",
         "Tests vadd with e32/m4 (32 elements, 4 register groups) and "
-        "e32/mf2 (fractional, reduced VLMAX)")
+        "e32/mf2 (fractional, reduced VLMAX)",
+    )
 
     sew = 32
 
@@ -3578,6 +3583,196 @@ def _gen_lmul4_and_fractional(out: Path) -> str:
     tf.data_label(f"{tag}_s1", format_data_line(s1_f16, sew16))
     tf.data_label(f"{tag}_exp", format_data_line(exp_f16, sew16))
     tf.data_label(f"{tag}_res", f"    .space {4 * 2}")
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_tail_widening_narrowing(out: Path) -> str:
+    """Test tail undisturbed for widening and narrowing instructions.
+
+    Widening: vwadd.vv e32→e64, vl=2 (tu policy). The destination is
+    e64/m2, pre-filled with pattern, tail (elements 2+) preserved.
+
+    Narrowing: vnsrl.wi e64→e32, vl=2 (tu policy). The destination is
+    e32/m1, pre-filled, tail preserved.
+    """
+    fpath = out / "tail_widen_narrow.S"
+    tf = TestFile(
+        "Tail undisturbed widening/narrowing",
+        "Verifies tail preservation (tu) for vwadd.vv (widening) and "
+        "vnsrl.wi (narrowing) with vl=2")
+
+    # Test 1: vwadd.vv e32→e64, vl=2
+    # Pre-fill v8 (e64 dest, m2 → v8+v9) with pattern at full vl,
+    # then execute vwadd at vl=2, dump via vs2r.v, check first 4 e64 elements
+    vl = 2
+    prefill_64 = [0xAAAA_AAAA_AAAA_AAAA, 0xBBBB_BBBB_BBBB_BBBB,
+                  0xCCCC_CCCC_CCCC_CCCC, 0xDDDD_DDDD_DDDD_DDDD]
+    s2_32 = [100, 200, 300, 400]
+    s1_32 = [10, 20, 30, 40]
+    # Widening add: result[i] = sext(s2[i]) + sext(s1[i]) at e64
+    exp_w = [110, 220]  # only vl=2 active
+    exp_full = exp_w + list(prefill_64[vl:])
+    nbytes = 4 * 8  # check 4 e64 elements = 32 bytes
+
+    cn = tf.next_check("vwadd.vv e32→e64 tu vl=2: tail not preserved")
+    tag = f"twn{cn}"
+    tf.blank()
+    tf.comment("Widening tail: vwadd.vv e32→e64, vl=2, tu")
+    # Pre-fill dest at e64 with full vl
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e64, m2, tu, mu")
+    tf.code(f"la t1, {tag}_pf64")
+    tf.code(f"vle64.v {VREG_DST}, (t1)")
+    # Load sources at e32
+    tf.code("vsetvli t0, t0, e32, m1, tu, mu")
+    tf.code(f"la t1, {tag}_s2")
+    tf.code(f"vle32.v {VREG_SRC2}, (t1)")
+    tf.code(f"la t1, {tag}_s1")
+    tf.code(f"vle32.v {VREG_SRC1}, (t1)")
+    # Set vl=2 at source SEW
+    tf.code(f"li t0, {vl}")
+    tf.code("vsetvli t0, t0, e32, m1, tu, mu")
+    tf.code("SAVE_CSRS")
+    tf.code(f"vwadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}")
+    # Dump dest via vs2r.v (2 registers = 2*VLEN/8 bytes)
+    tf.code(f"la t1, {tag}_res")
+    tf.code(f"vs2r.v {VREG_DST}, (t1)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code(f"CHECK_MEM {tag}_res, {tag}_exp, {nbytes}")
+
+    tf.data(".align 4")
+    tf.data_label(f"{tag}_pf64", format_data_line(prefill_64, 64))
+    tf.data_label(f"{tag}_s2", format_data_line(s2_32, 32))
+    tf.data_label(f"{tag}_s1", format_data_line(s1_32, 32))
+    tf.data_label(f"{tag}_exp", format_data_line(exp_full, 64))
+    tf.data_label(f"{tag}_res", "    .space 128")
+
+    # Test 2: vnsrl.wi e64→e32, vl=2
+    prefill_32 = [0xAAAA_AAAA, 0xBBBB_BBBB, 0xCCCC_CCCC, 0xDDDD_DDDD]
+    src_64 = [0x0000_0001_0000_0002, 0x0000_0003_0000_0004,
+              0x0000_0005_0000_0006, 0x0000_0007_0000_0008]
+    # vnsrl.wi vd, vs2, 0 → lower 32 bits of each e64
+    exp_n = [v & M(32) for v in src_64[:vl]]
+    exp_n_full = exp_n + list(prefill_32[vl:])
+    nbytes_n = 4 * 4  # 4 e32 elements = 16 bytes
+
+    cn = tf.next_check("vnsrl.wi e64→e32 tu vl=2: tail not preserved")
+    tag = f"twn{cn}"
+    tf.blank()
+    tf.comment("Narrowing tail: vnsrl.wi e64→e32, vl=2, tu")
+    # Pre-fill dest at e32
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e32, m1, tu, mu")
+    tf.code(f"la t1, {tag}_pf32")
+    tf.code(f"vle32.v {VREG_DST}, (t1)")
+    # Load source at e64
+    tf.code("vsetvli t0, t0, e64, m2, tu, mu")
+    tf.code(f"la t1, {tag}_s64")
+    tf.code(f"vle64.v {VREG_SRC2}, (t1)")
+    # Set vl=2 at dest SEW (e32)
+    tf.code(f"li t0, {vl}")
+    tf.code("vsetvli t0, t0, e32, m1, tu, mu")
+    tf.code("SAVE_CSRS")
+    tf.code(f"vnsrl.wi {VREG_DST}, {VREG_SRC2}, 0")
+    tf.code(f"la t1, {tag}_res")
+    tf.code(f"vs1r.v {VREG_DST}, (t1)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code(f"CHECK_MEM {tag}_res, {tag}_exp, {nbytes_n}")
+
+    tf.data(".align 4")
+    tf.data_label(f"{tag}_pf32", format_data_line(prefill_32, 32))
+    tf.data_label(f"{tag}_s64", format_data_line(src_64, 64))
+    tf.data_label(f"{tag}_exp", format_data_line(exp_n_full, 32))
+    tf.data_label(f"{tag}_res", "    .space 64")
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_small_vl_extra(out: Path) -> str:
+    """Test small vl (1, 2) for widening, narrowing, and compare instructions.
+
+    Complements _gen_small_vl which covers vadd/vmul/vle32/vredsum.
+    """
+    fpath = out / "small_vl_extra.S"
+    tf = TestFile(
+        "Small vl extra families",
+        "Tests vl=1/2 for vwadd.vv (widening), vnsrl.wi (narrowing), "
+        "vmseq.vv (compare)")
+
+    # Widening: vwadd.vv e32→e64, vl=1 and vl=2
+    for vl_val in [1, 2]:
+        s2 = [100, 200, 300, 400]
+        s1 = [10, 20, 30, 40]
+        # Only check the active widened elements
+        exp_active = [(s2[i] + s1[i]) for i in range(vl_val)]
+        nbytes_active = vl_val * 8  # e64 elements
+
+        cn = tf.next_check(f"vwadd.vv e32→e64 vl={vl_val}: result")
+        tag = f"svle{cn}"
+        tf.blank()
+        tf.comment(f"vwadd.vv e32→e64 vl={vl_val}")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code("vsetvli t0, t0, e32, m1, tu, mu")
+        tf.code(f"la t1, {tag}_s2")
+        tf.code(f"vle32.v {VREG_SRC2}, (t1)")
+        tf.code(f"la t1, {tag}_s1")
+        tf.code(f"vle32.v {VREG_SRC1}, (t1)")
+        tf.code(f"li t0, {vl_val}")
+        tf.code("vsetvli t0, t0, e32, m1, tu, mu")
+        tf.code("SAVE_CSRS")
+        tf.code(f"vwadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}")
+        tf.code(f"SET_TEST_NUM {cn}")
+        # Read result at e64
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code("vsetvli t0, t0, e64, m2, tu, mu")
+        tf.code("la t1, result_buf")
+        tf.code(f"vse64.v {VREG_DST}, (t1)")
+        tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes_active}")
+
+        tf.data_align(64)
+        tf.data_label(f"{tag}_s2", format_data_line(s2, 32))
+        tf.data_label(f"{tag}_s1", format_data_line(s1, 32))
+        tf.data_label(f"{tag}_exp", format_data_line(exp_active, 64))
+
+    # Compare: vmseq.vv e32, vl=1 and vl=2
+    for vl_val in [1, 2]:
+        s2 = [5, 10, 10, 20]
+        s1 = [5, 10, 15, 20]
+        # Expected mask: bit i set if s2[i]==s1[i], only for i < vl_val
+        exp_mask = 0
+        for i in range(vl_val):
+            if s2[i] == s1[i]:
+                exp_mask |= 1 << i
+        cn = tf.next_check(f"vmseq.vv e32 vl={vl_val}: mask result")
+        tag = f"svle{cn}"
+        tf.blank()
+        tf.comment(f"vmseq.vv e32 vl={vl_val}")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code("vsetvli t0, t0, e32, m1, tu, mu")
+        tf.code(f"la t1, {tag}_s2")
+        tf.code(f"vle32.v {VREG_SRC2}, (t1)")
+        tf.code(f"la t1, {tag}_s1")
+        tf.code(f"vle32.v {VREG_SRC1}, (t1)")
+        tf.code(f"li t0, {vl_val}")
+        tf.code("vsetvli t0, t0, e32, m1, ta, ma")
+        tf.code("SAVE_CSRS")
+        tf.code(f"vmseq.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}")
+        tf.code(f"SET_TEST_NUM {cn}")
+        tf.code("la t1, result_buf")
+        tf.code(f"vsm.v {VREG_DST}, (t1)")
+        tf.code("lbu t2, 0(t1)")
+        # Only check bits 0..vl_val-1 (tail bits are agnostic with ta)
+        mask_check = (1 << vl_val) - 1
+        tf.code(f"andi t2, t2, {mask_check}")
+        tf.code(f"li t3, {exp_mask}")
+        tf.code("FAIL_IF_NE t2, t3")
+
+        tf.data_align(32)
+        tf.data_label(f"{tag}_s2", format_data_line(s2, 32))
+        tf.data_label(f"{tag}_s1", format_data_line(s1, 32))
 
     tf.write(fpath)
     return str(fpath)

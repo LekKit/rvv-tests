@@ -12,6 +12,7 @@ tests/edge_cases/reserved_encoding.S 8
 tests/edge_cases/rvv_detect.S 5
 tests/edge_cases/scatter_ordered.S 2
 tests/edge_cases/small_vl.S 12
+tests/edge_cases/small_vl_extra.S 4
 tests/edge_cases/stride_negative.S 3
 tests/edge_cases/stride_zero.S 3
 tests/edge_cases/tail_agnostic.S 1
@@ -22,6 +23,7 @@ tests/edge_cases/tail_vlmax_fp.S 2
 tests/edge_cases/tail_vlmax_int.S 3
 tests/edge_cases/tail_vlmax_load.S 2
 tests/edge_cases/tail_vlmax_widening.S 2
+tests/edge_cases/tail_widen_narrow.S 2
 tests/edge_cases/vill_trap.S 5
 tests/edge_cases/vl_zero.S 2
 tests/edge_cases/vl_zero_fp.S 2
