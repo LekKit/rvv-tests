@@ -21,6 +21,15 @@
  *    16 = vzext.vf2 e32→e64 max: CSR side-effect
  *    17 = vzext.vf2 e32→e64 high: result
  *    18 = vzext.vf2 e32→e64 high: CSR side-effect
+ *    19 = vzext.vf2 e8→e16 masked: result
+ *    20 = vzext.vf2 e8→e16 masked: witness
+ *    21 = vzext.vf2 e8→e16 masked: CSR side-effect
+ *    22 = vzext.vf2 e16→e32 masked: result
+ *    23 = vzext.vf2 e16→e32 masked: witness
+ *    24 = vzext.vf2 e16→e32 masked: CSR side-effect
+ *    25 = vzext.vf2 e32→e64 masked: result
+ *    26 = vzext.vf2 e32→e64 masked: witness
+ *    27 = vzext.vf2 e32→e64 masked: CSR side-effect
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -161,6 +170,81 @@
     SET_TEST_NUM 18
     CHECK_CSRS_UNCHANGED
 
+    /* Test 19-21: vzext.vf2 e8→e16 masked (v0.t, mu) */
+    li t0, 4
+    vsetvli t0, t0, e8, m1, tu, mu
+    la t1, tc19_src
+    vle8.v v16, (t1)
+    vsetvli t0, t0, e16, m2, tu, mu
+    la t1, tc19_vd
+    vle16.v v8, (t1)
+    la t1, tc19_mask
+    vlm.v v0, (t1)
+    la t1, tc19_w
+    vle16.v v24, (t1)
+    SAVE_CSRS
+    vzext.vf2 v8, v16, v0.t
+    SET_TEST_NUM 19
+    la t1, result_buf
+    vse16.v v8, (t1)
+    CHECK_MEM result_buf, tc19_exp, 8
+    SET_TEST_NUM 20
+    la t1, witness_buf
+    vse16.v v24, (t1)
+    CHECK_MEM witness_buf, tc19_w, 8
+    SET_TEST_NUM 21
+    CHECK_CSRS_UNCHANGED
+
+    /* Test 22-24: vzext.vf2 e16→e32 masked (v0.t, mu) */
+    li t0, 4
+    vsetvli t0, t0, e16, m1, tu, mu
+    la t1, tc22_src
+    vle16.v v16, (t1)
+    vsetvli t0, t0, e32, m2, tu, mu
+    la t1, tc22_vd
+    vle32.v v8, (t1)
+    la t1, tc22_mask
+    vlm.v v0, (t1)
+    la t1, tc22_w
+    vle32.v v24, (t1)
+    SAVE_CSRS
+    vzext.vf2 v8, v16, v0.t
+    SET_TEST_NUM 22
+    la t1, result_buf
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc22_exp, 16
+    SET_TEST_NUM 23
+    la t1, witness_buf
+    vse32.v v24, (t1)
+    CHECK_MEM witness_buf, tc22_w, 16
+    SET_TEST_NUM 24
+    CHECK_CSRS_UNCHANGED
+
+    /* Test 25-27: vzext.vf2 e32→e64 masked (v0.t, mu) */
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc25_src
+    vle32.v v16, (t1)
+    vsetvli t0, t0, e64, m2, tu, mu
+    la t1, tc25_vd
+    vle64.v v8, (t1)
+    la t1, tc25_mask
+    vlm.v v0, (t1)
+    la t1, tc25_w
+    vle64.v v24, (t1)
+    SAVE_CSRS
+    vzext.vf2 v8, v16, v0.t
+    SET_TEST_NUM 25
+    la t1, result_buf
+    vse64.v v8, (t1)
+    CHECK_MEM result_buf, tc25_exp, 32
+    SET_TEST_NUM 26
+    la t1, witness_buf
+    vse64.v v24, (t1)
+    CHECK_MEM witness_buf, tc25_w, 32
+    SET_TEST_NUM 27
+    CHECK_CSRS_UNCHANGED
+
     PASS_TEST
 
 .data
@@ -209,6 +293,42 @@ tc17_src:
     .word 0xffffffff, 0x80000000, 0x80000001, 0x00000001
 tc17_exp:
     .dword 0x00000000ffffffff, 0x0000000080000000, 0x0000000080000001, 0x0000000000000001
+.align 1
+tc19_mask:
+    .byte 5
+.align 1
+tc19_src:
+    .byte 0xff, 0x7f, 0x80, 0x01
+tc19_vd:
+    .half 0x00dd, 0x00dd, 0x00dd, 0x00dd
+tc19_exp:
+    .half 0x00ff, 0x00dd, 0x0080, 0x00dd
+tc19_w:
+    .half 0xdead, 0xbeef, 0xcafe, 0xbabe
+.align 1
+tc22_mask:
+    .byte 5
+.align 2
+tc22_src:
+    .half 0xffff, 0x7fff, 0x8000, 0x0001
+tc22_vd:
+    .word 0x000000dd, 0x000000dd, 0x000000dd, 0x000000dd
+tc22_exp:
+    .word 0x0000ffff, 0x000000dd, 0x00008000, 0x000000dd
+tc22_w:
+    .word 0xdeadbeef, 0xcafebabe, 0x12345678, 0x9abcdef0
+.align 1
+tc25_mask:
+    .byte 5
+.align 3
+tc25_src:
+    .word 0xffffffff, 0x7fffffff, 0x80000000, 0x00000001
+tc25_vd:
+    .dword 0x00000000000000dd, 0x00000000000000dd, 0x00000000000000dd, 0x00000000000000dd
+tc25_exp:
+    .dword 0x00000000ffffffff, 0x00000000000000dd, 0x0000000080000000, 0x00000000000000dd
+tc25_w:
+    .dword 0xdeadbeefcafebabe, 0x123456789abcdef0, 0xfedcba9876543210, 0x0123456789abcdef
 
 .align 4
 result_buf:  .space 256

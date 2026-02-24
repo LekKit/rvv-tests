@@ -202,11 +202,11 @@ tests/int_div/vrem_vv.S 84
 tests/int_div/vrem_vx.S 66
 tests/int_div/vremu_vv.S 84
 tests/int_div/vremu_vx.S 66
-tests/int_extension/vsext_vf2.S 18
-tests/int_extension/vsext_vf4.S 12
+tests/int_extension/vsext_vf2.S 27
+tests/int_extension/vsext_vf4.S 18
 tests/int_extension/vsext_vf8.S 6
-tests/int_extension/vzext_vf2.S 18
-tests/int_extension/vzext_vf4.S 12
+tests/int_extension/vzext_vf2.S 27
+tests/int_extension/vzext_vf4.S 18
 tests/int_extension/vzext_vf8.S 6
 tests/int_logical/vand_vi.S 66
 tests/int_logical/vand_vv.S 84
