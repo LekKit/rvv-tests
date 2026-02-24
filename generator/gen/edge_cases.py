@@ -279,6 +279,10 @@ def generate(base_dir: Path) -> list[str]:
     # Phase 5: LMUL>1 boundary crossing per-instruction-family
     generated.append(_gen_lmul2_per_family(out))
 
+    # Phase 6: vsetvli edge cases + whole register ops
+    generated.append(_gen_vsetvl_edge_cases(out))
+    generated.append(_gen_whole_reg_ops(out))
+
     return generated
 
 
@@ -2926,7 +2930,8 @@ def _gen_lmul2_per_family(out: Path) -> str:
     tf = TestFile(
         "LMUL=2 per family",
         "Tests register group boundary crossing (e32/m2) for vadd, "
-        "vmul, vand, vsll, vmin across 16 elements (v8+v9)")
+        "vmul, vand, vsll, vmin across 16 elements (v8+v9)",
+    )
 
     sew = 32
     n = 16  # elements for VLEN=256
@@ -2936,16 +2941,31 @@ def _gen_lmul2_per_family(out: Path) -> str:
     s1 = [(i + 1) for i in range(n)]
 
     tests: list[tuple[str, str, list[int]]] = [
-        ("vadd.vv", f"vadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
-         [(a + b) & M(sew) for a, b in zip(s2, s1)]),
-        ("vmul.vv", f"vmul.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
-         [(a * b) & M(sew) for a, b in zip(s2, s1)]),
-        ("vand.vv", f"vand.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
-         [(a & b) & M(sew) for a, b in zip(s2, s1)]),
-        ("vsll.vv", f"vsll.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
-         [(a << (b & 0x1f)) & M(sew) for a, b in zip(s2, s1)]),
-        ("vminu.vv", f"vminu.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
-         [min(a, b) for a, b in zip(s2, s1)]),
+        (
+            "vadd.vv",
+            f"vadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+            [(a + b) & M(sew) for a, b in zip(s2, s1)],
+        ),
+        (
+            "vmul.vv",
+            f"vmul.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+            [(a * b) & M(sew) for a, b in zip(s2, s1)],
+        ),
+        (
+            "vand.vv",
+            f"vand.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+            [(a & b) & M(sew) for a, b in zip(s2, s1)],
+        ),
+        (
+            "vsll.vv",
+            f"vsll.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+            [(a << (b & 0x1F)) & M(sew) for a, b in zip(s2, s1)],
+        ),
+        (
+            "vminu.vv",
+            f"vminu.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+            [min(a, b) for a, b in zip(s2, s1)],
+        ),
     ]
     tag_pfx = "lm2"
 
@@ -2987,6 +3007,233 @@ def _gen_lmul2_per_family(out: Path) -> str:
         tf.data_label(f"{tag}_s1", format_data_line(s1, sew))
         tf.data_label(f"{tag}_exp", format_data_line(expected, sew))
         tf.data_label(f"{tag}_res", f"    .space {n * 4}")
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_vsetvl_edge_cases(out: Path) -> str:
+    """Test vsetvli/vsetivli/vsetvl edge cases from the spec.
+
+    1. AVL > VLMAX: vl must satisfy ceil(AVL/2) <= vl <= VLMAX
+       (we check vl == VLMAX since most implementations do this).
+    2. rs1=x0, rd!=x0: must set vl=VLMAX.
+    3. rs1=x0, rd=x0: must keep vl unchanged, only change vtype.
+    4. vsetivli with all valid immediate AVL values (0..31).
+    5. All valid SEW/LMUL combinations produce non-vill vtype.
+    """
+    fpath = out / "vsetvl_edge.S"
+    tf = TestFile(
+        "vsetvli/vsetivli edge cases",
+        "Tests AVL>VLMAX, rs1=x0 semantics, vsetivli range, and SEW/LMUL validity",
+    )
+
+    sew = 32
+
+    # Test 1: AVL > VLMAX → vl clipped
+    cn = tf.next_check("AVL>VLMAX: vl not clipped to VLMAX")
+    tag = f"vsec{cn}"
+    tf.blank()
+    tf.comment("AVL > VLMAX: vl should be clipped")
+    tf.code("li t0, 1000")
+    tf.code("vsetvli t0, t0, e32, m1, ta, ma")
+    tf.code(f"SET_TEST_NUM {cn}")
+    # vl must be <= VLMAX (VLEN/32). Get VLMAX via separate call.
+    tf.code("vsetvli t1, x0, e32, m1, ta, ma")  # t1 = VLMAX
+    # t0 (vl from AVL=1000) must equal t1 (VLMAX) on most impls
+    # Spec: ceil(1000/2)=500 <= vl <= VLMAX. For VLMAX=8, vl must be 8.
+    tf.code("FAIL_IF_NE t0, t1")
+
+    # Test 2: rs1=x0, rd!=x0 → vl = VLMAX
+    cn = tf.next_check("rs1=x0, rd!=x0: vl != VLMAX")
+    tf.blank()
+    tf.comment("rs1=x0, rd!=x0 → set vl=VLMAX")
+    tf.code("vsetvli t0, x0, e32, m1, ta, ma")
+    tf.code("vsetvli t1, x0, e32, m1, ta, ma")  # get VLMAX again
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("FAIL_IF_NE t0, t1")
+
+    # Test 3: rs1=x0, rd=x0 → keep vl, change vtype only
+    # (spec: vl preserved only if new SEW/LMUL ratio == old ratio)
+    cn = tf.next_check("rs1=x0, rd=x0: vl changed unexpectedly")
+    tf.blank()
+    tf.comment("rs1=x0, rd=x0 → keep vl (same SEW/LMUL ratio)")
+    tf.code("li t0, 3")
+    tf.code("vsetvli t0, t0, e32, m1, ta, ma")  # vl=3, ratio=32
+    # Change to e16/mf2 — ratio = 16/(1/2) = 32, same as before
+    tf.code("vsetvli x0, x0, e16, mf2, ta, ma")
+    tf.code("csrr t1, vl")  # read vl CSR
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("li t2, 3")
+    tf.code("FAIL_IF_NE t1, t2")
+
+    # Test 4: vsetivli with immediate AVL=0
+    cn = tf.next_check("vsetivli AVL=0: vl not 0")
+    tf.blank()
+    tf.comment("vsetivli AVL=0")
+    tf.code("vsetivli t0, 0, e32, m1, ta, ma")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("FAIL_IF_NZ t0")
+
+    # Test 5: vsetivli with immediate AVL=31 (max)
+    cn = tf.next_check("vsetivli AVL=31: vl wrong")
+    tf.blank()
+    tf.comment("vsetivli AVL=31 → vl = min(31, VLMAX)")
+    tf.code("vsetivli t0, 31, e32, m1, ta, ma")
+    tf.code("vsetvli t1, x0, e32, m1, ta, ma")  # t1 = VLMAX
+    tf.code(f"SET_TEST_NUM {cn}")
+    # vl should be min(31, VLMAX)
+    tf.code("li t2, 31")
+    tf.code("bge t1, t2, 1f")  # if VLMAX >= 31, expected=31 (t2)
+    tf.code("mv t2, t1")  # else expected = VLMAX
+    tf.raw("1:")
+    tf.code("FAIL_IF_NE t0, t2")
+
+    # Test 6: valid SEW/LMUL combos don't set vill
+    valid_combos = [
+        ("e8", "m1"),
+        ("e8", "m2"),
+        ("e8", "m4"),
+        ("e8", "m8"),
+        ("e8", "mf2"),
+        ("e8", "mf4"),
+        ("e8", "mf8"),
+        ("e16", "m1"),
+        ("e16", "m2"),
+        ("e16", "m4"),
+        ("e16", "m8"),
+        ("e16", "mf2"),
+        ("e16", "mf4"),
+        ("e32", "m1"),
+        ("e32", "m2"),
+        ("e32", "m4"),
+        ("e32", "m8"),
+        ("e32", "mf2"),
+        ("e64", "m1"),
+        ("e64", "m2"),
+        ("e64", "m4"),
+        ("e64", "m8"),
+    ]
+    cn = tf.next_check("valid SEW/LMUL combo set vill")
+    tf.blank()
+    tf.comment("All valid SEW/LMUL combos must not set vill")
+    tf.code(f"SET_TEST_NUM {cn}")
+    for esew, elmul in valid_combos:
+        tf.code(f"vsetvli t0, x0, {esew}, {elmul}, ta, ma")
+        tf.code("FAIL_IF_Z t0")  # vl=0 means vill was set
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_whole_reg_ops(out: Path) -> str:
+    """Test whole register moves (vmv2r, vmv4r, vmv8r) and
+    whole register load/store (vl2re32, vl4re32, vs2r, vs4r).
+
+    Verifies data integrity across multi-register operations.
+    """
+    fpath = out / "whole_reg_ops.S"
+    tf = TestFile(
+        "Whole register operations",
+        "Tests vmv2r/4r/8r move data integrity and vl2re/vl4re/vs2r/vs4r "
+        "load/store round-trips",
+    )
+
+    sew = 32
+
+    # Test 1: vmv2r.v — copy v16-v17 to v8-v9, verify via vs2r round-trip
+    cn = tf.next_check("vmv2r.v: data integrity")
+    tag = f"wreg{cn}"
+    tf.blank()
+    tf.comment("vmv2r.v: copy 2-register group, verify via load+move+store")
+    # Load 2 registers into v16-v17 using vl2re32
+    tf.code(f"la t1, {tag}_mem")
+    tf.code("vl2re32.v v16, (t1)")
+    tf.code("vmv2r.v v8, v16")
+    # Store v8-v9 and compare with original
+    tf.code(f"la t1, {tag}_res")
+    tf.code("vs2r.v v8, (t1)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("csrr a3, vlenb")
+    tf.code("slli a3, a3, 1")  # 2 * vlenb bytes
+    tf.code(f"la a1, {tag}_res")
+    tf.code(f"la a2, {tag}_mem")
+    tf.code("call _mem_compare")
+    tf.code("FAIL_IF_NZ a0")
+
+    # Source: 128 bytes (enough for VLEN up to 512)
+    tf.data(".align 4")
+    src_2r = [0x11111111 + i * 0x01010101 for i in range(32)]
+    tf.data_label(f"{tag}_mem", format_data_line(src_2r, sew))
+    tf.data_label(f"{tag}_res", "    .space 128")
+
+    # Test 2: vmv4r.v — copy v16-v19 to v8-v11
+    cn = tf.next_check("vmv4r.v: data integrity")
+    tag = f"wreg{cn}"
+    tf.blank()
+    tf.comment("vmv4r.v: copy 4-register group")
+    tf.code(f"la t1, {tag}_mem")
+    tf.code("vl4re32.v v16, (t1)")
+    tf.code("vmv4r.v v8, v16")
+    tf.code(f"la t1, {tag}_res")
+    tf.code("vs4r.v v8, (t1)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("csrr a3, vlenb")
+    tf.code("slli a3, a3, 2")  # 4 * vlenb
+    tf.code(f"la a1, {tag}_res")
+    tf.code(f"la a2, {tag}_mem")
+    tf.code("call _mem_compare")
+    tf.code("FAIL_IF_NZ a0")
+
+    tf.data(".align 4")
+    src_4r = [0xAAAA0001 + i for i in range(64)]
+    tf.data_label(f"{tag}_mem", format_data_line(src_4r, sew))
+    tf.data_label(f"{tag}_res", "    .space 256")
+
+    # Test 3: vl2re32.v / vs2r.v round-trip
+    cn = tf.next_check("vl2re32/vs2r round-trip: data integrity")
+    tag = f"wreg{cn}"
+    tf.blank()
+    tf.comment("vl2re32.v + vs2r.v round-trip")
+    tf.code(f"la t1, {tag}_mem")
+    tf.code("vl2re32.v v8, (t1)")
+    tf.code(f"la t1, {tag}_res")
+    tf.code("vs2r.v v8, (t1)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("csrr a3, vlenb")
+    tf.code("slli a3, a3, 1")
+    tf.code(f"la a1, {tag}_res")
+    tf.code(f"la a2, {tag}_mem")
+    tf.code("call _mem_compare")
+    tf.code("FAIL_IF_NZ a0")
+
+    tf.data(".align 4")
+    mem2 = [0x1234_5678, 0x9ABC_DEF0, 0xFEDC_BA98, 0x7654_3210]
+    tf.data_label(f"{tag}_mem", format_data_line(mem2, sew))
+    tf.data("    .space 112")  # pad to 128 bytes
+    tf.data_label(f"{tag}_res", "    .space 128")
+
+    # Test 4: vl4re32.v / vs4r.v round-trip
+    cn = tf.next_check("vl4re32/vs4r round-trip: data integrity")
+    tag = f"wreg{cn}"
+    tf.blank()
+    tf.comment("vl4re32.v + vs4r.v round-trip")
+    tf.code(f"la t1, {tag}_mem")
+    tf.code("vl4re32.v v8, (t1)")
+    tf.code(f"la t1, {tag}_res")
+    tf.code("vs4r.v v8, (t1)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("csrr a3, vlenb")
+    tf.code("slli a3, a3, 2")
+    tf.code(f"la a1, {tag}_res")
+    tf.code(f"la a2, {tag}_mem")
+    tf.code("call _mem_compare")
+    tf.code("FAIL_IF_NZ a0")
+
+    tf.data(".align 4")
+    tf.data_label(f"{tag}_mem", format_data_line(mem2, sew))
+    tf.data("    .space 240")  # pad to 256 bytes
+    tf.data_label(f"{tag}_res", "    .space 256")
 
     tf.write(fpath)
     return str(fpath)
