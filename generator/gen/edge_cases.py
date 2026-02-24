@@ -276,6 +276,9 @@ def generate(base_dir: Path) -> list[str]:
     # Phase 4: tail undisturbed per-instruction-family tests
     generated.append(_gen_tail_per_family(out))
 
+    # Phase 5: LMUL>1 boundary crossing per-instruction-family
+    generated.append(_gen_lmul2_per_family(out))
+
     return generated
 
 
@@ -2736,7 +2739,8 @@ def _gen_tail_per_family(out: Path) -> str:
         "Tail undisturbed per family",
         "Verifies tail elements are preserved (tu policy) for "
         "representative instructions from each family: vadd, vmul, "
-        "vwadd, vmacc, vsadd, vfadd, vle32, vslideup")
+        "vwadd, vmacc, vsadd, vfadd, vle32, vslideup",
+    )
 
     sew = 32
     vl = 2
@@ -2746,8 +2750,14 @@ def _gen_tail_per_family(out: Path) -> str:
 
     # Helper to emit one tail test
     def _emit_tail_test(
-        name: str, insn: str, src2_vals: list[int], src1_vals: list[int],
-        expected_active: list[int], *, setup: str = "", csr_check: str = "CHECK_CSRS_UNCHANGED",
+        name: str,
+        insn: str,
+        src2_vals: list[int],
+        src1_vals: list[int],
+        expected_active: list[int],
+        *,
+        setup: str = "",
+        csr_check: str = "CHECK_CSRS_UNCHANGED",
     ) -> None:
         exp = list(expected_active[:vl]) + list(prefill[vl:])
         cn = tf.next_check(f"{name} tu: tail not preserved")
@@ -2801,31 +2811,45 @@ def _gen_tail_per_family(out: Path) -> str:
     s2 = [10, 20, 30, 40]
     s1 = [1, 2, 3, 4]
     exp_add = [(a + b) & M(sew) for a, b in zip(s2, s1)]
-    _emit_tail_test("vadd.vv", f"vadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
-                    s2, s1, exp_add)
+    _emit_tail_test(
+        "vadd.vv", f"vadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}", s2, s1, exp_add
+    )
 
     # vmul.vv
     exp_mul = [(a * b) & M(sew) for a, b in zip(s2, s1)]
-    _emit_tail_test("vmul.vv", f"vmul.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
-                    s2, s1, exp_mul)
+    _emit_tail_test(
+        "vmul.vv", f"vmul.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}", s2, s1, exp_mul
+    )
 
     # vsadd.vv (saturating add)
     from ..compute.fixed_point import sadd
+
     sa = [0x7FFF_FFFE, 0x7FFF_FFFF, 10, 20]
     sb = [1, 1, 5, 5]
     exp_sadd = [sadd(a, b, sew)[0] for a, b in zip(sa, sb)]
-    _emit_tail_test("vsadd.vv", f"vsadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
-                    sa, sb, exp_sadd,
-                    csr_check="CHECK_CSRS_UNCHANGED_FIXEDPOINT")
+    _emit_tail_test(
+        "vsadd.vv",
+        f"vsadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+        sa,
+        sb,
+        exp_sadd,
+        csr_check="CHECK_CSRS_UNCHANGED_FIXEDPOINT",
+    )
 
     # vfadd.vv (FP)
     from ..common import f32_to_bits
+
     fa = [f32_to_bits(1.0), f32_to_bits(2.0), f32_to_bits(3.0), f32_to_bits(4.0)]
     fb = [f32_to_bits(0.5), f32_to_bits(0.5), f32_to_bits(0.5), f32_to_bits(0.5)]
     exp_fp = [f32_to_bits(1.5), f32_to_bits(2.5), f32_to_bits(3.5), f32_to_bits(4.5)]
-    _emit_tail_test("vfadd.vv", f"vfadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
-                    fa, fb, exp_fp,
-                    csr_check="CHECK_CSRS_UNCHANGED_FP")
+    _emit_tail_test(
+        "vfadd.vv",
+        f"vfadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+        fa,
+        fb,
+        exp_fp,
+        csr_check="CHECK_CSRS_UNCHANGED_FP",
+    )
 
     # vle32.v (load)
     ld_data = [0x1111, 0x2222, 0x3333, 0x4444]
@@ -2881,6 +2905,88 @@ def _gen_tail_per_family(out: Path) -> str:
     tf.data_label(f"{tag}_pf", format_data_line(prefill, sew))
     tf.data_label(f"{tag}_src", format_data_line(sl_src, sew))
     tf.data_label(f"{tag}_exp", format_data_line(exp_slide, sew))
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_lmul2_per_family(out: Path) -> str:
+    """Test LMUL=2 boundary crossing for representative instructions.
+
+    With e32/m2 on VLEN=256, VLMAX=16: elements 0-7 in v8, 8-15 in v9.
+    Uses vl=16 to exercise the full register group, verifying elements
+    crossing the v8→v9 boundary are correctly computed.
+
+    Since we need more than 4 elements, we dynamically request VLMAX
+    with vsetvli t0, x0 and use runtime vl.  We generate expected data
+    for 16 elements (correct for VLEN=256) but only compare as many
+    bytes as vl*4.
+    """
+    fpath = out / "lmul2_per_family.S"
+    tf = TestFile(
+        "LMUL=2 per family",
+        "Tests register group boundary crossing (e32/m2) for vadd, "
+        "vmul, vand, vsll, vmin across 16 elements (v8+v9)")
+
+    sew = 32
+    n = 16  # elements for VLEN=256
+
+    # Generate test data: 16 elements
+    s2 = [(i + 1) * 100 for i in range(n)]
+    s1 = [(i + 1) for i in range(n)]
+
+    tests: list[tuple[str, str, list[int]]] = [
+        ("vadd.vv", f"vadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+         [(a + b) & M(sew) for a, b in zip(s2, s1)]),
+        ("vmul.vv", f"vmul.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+         [(a * b) & M(sew) for a, b in zip(s2, s1)]),
+        ("vand.vv", f"vand.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+         [(a & b) & M(sew) for a, b in zip(s2, s1)]),
+        ("vsll.vv", f"vsll.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+         [(a << (b & 0x1f)) & M(sew) for a, b in zip(s2, s1)]),
+        ("vminu.vv", f"vminu.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+         [min(a, b) for a, b in zip(s2, s1)]),
+    ]
+    tag_pfx = "lm2"
+
+    for name, insn, expected in tests:
+        cn = tf.next_check(f"{name} e32/m2: boundary crossing")
+        tag = f"{tag_pfx}{cn}"
+
+        tf.blank()
+        tf.comment(f"LMUL=2 test: {name} (e32/m2, vl=VLMAX)")
+
+        # Request VLMAX elements
+        tf.code("vsetvli t0, x0, e32, m2, ta, ma")
+        # Save actual vl for byte count
+        tf.code("mv s6, t0")
+
+        # Load sources (need vs2r.v for m2 loads — or just vle32 with LMUL=2)
+        tf.code(f"la t1, {tag}_s2")
+        tf.code(f"vle32.v {VREG_SRC2}, (t1)")
+        tf.code(f"la t1, {tag}_s1")
+        tf.code(f"vle32.v {VREG_SRC1}, (t1)")
+
+        tf.code("SAVE_CSRS")
+        tf.code(insn)
+
+        # Store result
+        tf.code(f"la t1, {tag}_res")
+        tf.code(f"vse32.v {VREG_DST}, (t1)")
+
+        # Compute comparison length: vl * 4 bytes
+        tf.code(f"SET_TEST_NUM {cn}")
+        tf.code("slli a3, s6, 2")  # nbytes = vl * 4
+        tf.code(f"la a1, {tag}_res")
+        tf.code(f"la a2, {tag}_exp")
+        tf.code("call _mem_compare")
+        tf.code("FAIL_IF_NZ a0")
+
+        tf.data(".align 4")
+        tf.data_label(f"{tag}_s2", format_data_line(s2, sew))
+        tf.data_label(f"{tag}_s1", format_data_line(s1, sew))
+        tf.data_label(f"{tag}_exp", format_data_line(expected, sew))
+        tf.data_label(f"{tag}_res", f"    .space {n * 4}")
 
     tf.write(fpath)
     return str(fpath)
