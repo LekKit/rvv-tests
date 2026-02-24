@@ -13,6 +13,7 @@ tests/edge_cases/stride_negative.S 3
 tests/edge_cases/stride_zero.S 3
 tests/edge_cases/tail_agnostic.S 1
 tests/edge_cases/tail_masked_combined.S 1
+tests/edge_cases/tail_per_family.S 6
 tests/edge_cases/tail_undisturbed.S 2
 tests/edge_cases/tail_vlmax_fp.S 2
 tests/edge_cases/tail_vlmax_int.S 3

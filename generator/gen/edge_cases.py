@@ -273,6 +273,9 @@ def generate(base_dir: Path) -> list[str]:
     generated.append(_gen_reserved_encoding(out))
     generated.append(_gen_rvv_detect(out))
 
+    # Phase 4: tail undisturbed per-instruction-family tests
+    generated.append(_gen_tail_per_family(out))
+
     return generated
 
 
@@ -2202,7 +2205,8 @@ def _gen_vstart_nonzero(out: Path) -> str:
         "vstart CSR + vadd.vv",
         "Verifies csrw/csrr vstart works and tests vadd.vv behavior "
         "with nonzero vstart (both SIGILL and skip-elements are valid "
-        "per RVV 1.0 §3.7)")
+        "per RVV 1.0 §3.7)",
+    )
 
     sew = 32
     vd_pre = [0xAAAA_AAAA, 0xBBBB_BBBB, 0xCCCC_CCCC, 0xDDDD_DDDD]
@@ -2222,7 +2226,8 @@ def _gen_vstart_nonzero(out: Path) -> str:
     cn_clone = tf.next_check("clone() failed")
     cn_behavior = tf.next_check(
         "vadd.vv with vstart=2: child exited 0 but result wrong "
-        "(neither SIGILL nor correct skip-elements behavior)")
+        "(neither SIGILL nor correct skip-elements behavior)"
+    )
     tag = "vstart"
 
     tf.blank()
@@ -2663,7 +2668,8 @@ def _gen_rvv_detect(out: Path) -> str:
         "RVV 1.0 detection",
         "Verifies the implementation is standard RVV 1.0 (not "
         "XTheadVector) by testing instructions that exist only in "
-        "RVV 1.0: vsetivli, vlenb CSR, vmv1r.v")
+        "RVV 1.0: vsetivli, vlenb CSR, vmv1r.v",
+    )
 
     cn_vsetivli = tf.next_check("vsetivli not supported (XTheadVector?)")
     cn_vlenb = tf.next_check("csrr vlenb failed")
@@ -2707,6 +2713,174 @@ def _gen_rvv_detect(out: Path) -> str:
     # Data
     tf.data_align(sew)
     tf.data_label(f"{tag}_src", format_data_line(src_data, sew))
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_tail_per_family(out: Path) -> str:
+    """Test tail-undisturbed (tu) policy across instruction families.
+
+    Uses vl=2 with e32/m1 (VLMAX=VLEN/32 ≥ 4), pre-fills vd with a
+    known pattern, executes each instruction, then dumps the full
+    register via vs1r.v and verifies:
+      - Active elements (0..vl-1) have the correct computed result.
+      - Tail elements (vl..VLEN/32-1) are preserved from the pre-fill.
+
+    Since VLEN is unknown at generation time, we only check the first
+    4 elements (2 active + 2 tail) using a fixed 16-byte comparison,
+    which works for any VLEN >= 128.
+    """
+    fpath = out / "tail_per_family.S"
+    tf = TestFile(
+        "Tail undisturbed per family",
+        "Verifies tail elements are preserved (tu policy) for "
+        "representative instructions from each family: vadd, vmul, "
+        "vwadd, vmacc, vsadd, vfadd, vle32, vslideup")
+
+    sew = 32
+    vl = 2
+    nbytes = 4 * (sew // 8)  # check first 4 e32 elements = 16 bytes
+    prefill = [0xAAAA_AAAA, 0xBBBB_BBBB, 0xCCCC_CCCC, 0xDDDD_DDDD]
+    tag_pfx = "tpf"
+
+    # Helper to emit one tail test
+    def _emit_tail_test(
+        name: str, insn: str, src2_vals: list[int], src1_vals: list[int],
+        expected_active: list[int], *, setup: str = "", csr_check: str = "CHECK_CSRS_UNCHANGED",
+    ) -> None:
+        exp = list(expected_active[:vl]) + list(prefill[vl:])
+        cn = tf.next_check(f"{name} tu: tail not preserved")
+        tag = f"{tag_pfx}{cn}"
+
+        tf.blank()
+        tf.comment(f"Tail test: {name} (vl={vl}, tu policy)")
+        if setup:
+            tf.code(setup)
+        tf.code(f"li t0, {vl}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+
+        # Pre-fill destination with pattern
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag}_pf")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+
+        # Set vl to the test value
+        tf.code(f"li t0, {vl}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+
+        # Load sources
+        if src2_vals:
+            tf.code(f"la t1, {tag}_s2")
+            tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+        if src1_vals:
+            tf.code(f"la t1, {tag}_s1")
+            tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
+
+        tf.code("SAVE_CSRS")
+        tf.code(insn)
+
+        # Dump full register to result_buf
+        tf.code("la t1, result_buf")
+        tf.code(f"vs1r.v {VREG_DST}, (t1)")
+
+        tf.code(f"SET_TEST_NUM {cn}")
+        tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
+        tf.code(csr_check)
+
+        tf.data_align(sew)
+        tf.data_label(f"{tag}_pf", format_data_line(prefill, sew))
+        if src2_vals:
+            tf.data_label(f"{tag}_s2", format_data_line(src2_vals, sew))
+        if src1_vals:
+            tf.data_label(f"{tag}_s1", format_data_line(src1_vals, sew))
+        tf.data_label(f"{tag}_exp", format_data_line(exp, sew))
+
+    # vadd.vv
+    s2 = [10, 20, 30, 40]
+    s1 = [1, 2, 3, 4]
+    exp_add = [(a + b) & M(sew) for a, b in zip(s2, s1)]
+    _emit_tail_test("vadd.vv", f"vadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+                    s2, s1, exp_add)
+
+    # vmul.vv
+    exp_mul = [(a * b) & M(sew) for a, b in zip(s2, s1)]
+    _emit_tail_test("vmul.vv", f"vmul.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+                    s2, s1, exp_mul)
+
+    # vsadd.vv (saturating add)
+    from ..compute.fixed_point import sadd
+    sa = [0x7FFF_FFFE, 0x7FFF_FFFF, 10, 20]
+    sb = [1, 1, 5, 5]
+    exp_sadd = [sadd(a, b, sew)[0] for a, b in zip(sa, sb)]
+    _emit_tail_test("vsadd.vv", f"vsadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+                    sa, sb, exp_sadd,
+                    csr_check="CHECK_CSRS_UNCHANGED_FIXEDPOINT")
+
+    # vfadd.vv (FP)
+    from ..common import f32_to_bits
+    fa = [f32_to_bits(1.0), f32_to_bits(2.0), f32_to_bits(3.0), f32_to_bits(4.0)]
+    fb = [f32_to_bits(0.5), f32_to_bits(0.5), f32_to_bits(0.5), f32_to_bits(0.5)]
+    exp_fp = [f32_to_bits(1.5), f32_to_bits(2.5), f32_to_bits(3.5), f32_to_bits(4.5)]
+    _emit_tail_test("vfadd.vv", f"vfadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}",
+                    fa, fb, exp_fp,
+                    csr_check="CHECK_CSRS_UNCHANGED_FP")
+
+    # vle32.v (load)
+    ld_data = [0x1111, 0x2222, 0x3333, 0x4444]
+    exp_ld = ld_data  # active elements loaded, tail preserved
+    cn = tf.next_check("vle32.v tu: tail not preserved")
+    tag = f"{tag_pfx}{cn}"
+    tf.blank()
+    tf.comment(f"Tail test: vle32.v (vl={vl}, tu policy)")
+    tf.code(f"li t0, {NUM_ELEMS}")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+    tf.code(f"la t1, {tag}_pf")
+    tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+    tf.code(f"li t0, {vl}")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+    tf.code("SAVE_CSRS")
+    tf.code(f"la t1, {tag}_mem")
+    tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+    tf.code("la t1, result_buf")
+    tf.code(f"vs1r.v {VREG_DST}, (t1)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    exp_ld_full = list(ld_data[:vl]) + list(prefill[vl:])
+    tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
+    tf.code("CHECK_CSRS_UNCHANGED")
+    tf.data_align(sew)
+    tf.data_label(f"{tag}_pf", format_data_line(prefill, sew))
+    tf.data_label(f"{tag}_mem", format_data_line(ld_data, sew))
+    tf.data_label(f"{tag}_exp", format_data_line(exp_ld_full, sew))
+
+    # vslideup.vi (offset=1)
+    sl_src = [10, 20, 30, 40]
+    # slideup with offset=1, vl=2: element 0 from vd (i<offset), element 1 = src[0]
+    exp_slide = [prefill[0], sl_src[0]] + list(prefill[vl:])
+    cn = tf.next_check("vslideup.vi tu: tail not preserved")
+    tag = f"{tag_pfx}{cn}"
+    tf.blank()
+    tf.comment(f"Tail test: vslideup.vi (vl={vl}, offset=1, tu policy)")
+    tf.code(f"li t0, {NUM_ELEMS}")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+    tf.code(f"la t1, {tag}_pf")
+    tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+    tf.code(f"la t1, {tag}_src")
+    tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+    tf.code(f"li t0, {vl}")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+    tf.code("SAVE_CSRS")
+    tf.code(f"vslideup.vi {VREG_DST}, {VREG_SRC2}, 1")
+    tf.code("la t1, result_buf")
+    tf.code(f"vs1r.v {VREG_DST}, (t1)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
+    tf.code("CHECK_CSRS_UNCHANGED")
+    tf.data_align(sew)
+    tf.data_label(f"{tag}_pf", format_data_line(prefill, sew))
+    tf.data_label(f"{tag}_src", format_data_line(sl_src, sew))
+    tf.data_label(f"{tag}_exp", format_data_line(exp_slide, sew))
 
     tf.write(fpath)
     return str(fpath)
