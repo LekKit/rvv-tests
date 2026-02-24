@@ -9,9 +9,9 @@ vl1re8..vl8re64, vs1r..vs8r.
 
 from pathlib import Path
 
-from ..common import SEWS, NUM_ELEMS, M, format_data_line, format_hex
+from ..common import SEWS, NUM_ELEMS, M, format_data_line, format_hex, witness_pattern
 from ..testfile import TestFile
-from ..emit import VREG_DST, VREG_SRC2
+from ..emit import VREG_DST, VREG_SRC2, VREG_WITNESS
 
 
 def generate(base_dir: Path) -> list[str]:
@@ -57,6 +57,43 @@ def generate(base_dir: Path) -> list[str]:
         tf.data_align(sew)
         tf.data_label(f"{tag}_data", format_data_line(src_vals, sew))
 
+        # Masked load: mask=0b0101, elements 0,2 loaded, 1,3 preserved from vd_init
+        mask_bits = 0b0101
+        vd_init = [0xDD & M(sew)] * NUM_ELEMS
+        mem_data = [0xAA, 0xBB, 0xCC, 0xDD]
+        mem_data = [v & M(sew) for v in mem_data]
+        exp_masked = []
+        for i in range(NUM_ELEMS):
+            if mask_bits & (1 << i):
+                exp_masked.append(mem_data[i])
+            else:
+                exp_masked.append(vd_init[i])
+        cn_m = tf.next_check(f"vle{sew}.v masked: active+inactive elements")
+        tag_m = f"tc{cn_m}"
+        tf.blank()
+        tf.comment(f"Masked load: mask=0b{mask_bits:04b}, tu/mu policy")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag_m}_vd")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"la t1, {tag_m}_mask")
+        tf.code("vlm.v v0, (t1)")
+        tf.code("SAVE_CSRS")
+        tf.code(f"la t1, {tag_m}_mem")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1), v0.t")
+        tf.code(f"SET_TEST_NUM {cn_m}")
+        tf.code("la t1, result_buf")
+        tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"CHECK_MEM result_buf, {tag_m}_exp, {nbytes}")
+        tf.code("CHECK_CSRS_UNCHANGED")
+
+        tf.data(".align 1")
+        tf.data_label(f"{tag_m}_mask", f"    .byte {mask_bits}")
+        tf.data_align(sew)
+        tf.data_label(f"{tag_m}_vd", format_data_line(vd_init, sew))
+        tf.data_label(f"{tag_m}_mem", format_data_line(mem_data, sew))
+        tf.data_label(f"{tag_m}_exp", format_data_line(exp_masked, sew))
+
         tf.write(fpath)
         generated.append(str(fpath))
 
@@ -88,6 +125,47 @@ def generate(base_dir: Path) -> list[str]:
 
         tf.data_align(sew)
         tf.data_label(f"{tag}_data", format_data_line(src_vals, sew))
+
+        # Masked store: mask=0b0101, only elements 0,2 written to buffer
+        mask_bits = 0b0101
+        store_data = [0x11, 0x22, 0x33, 0x44]
+        store_data = [v & M(sew) for v in store_data]
+        buf_init = [0xFF & M(sew)] * NUM_ELEMS
+        exp_store = []
+        for i in range(NUM_ELEMS):
+            if mask_bits & (1 << i):
+                exp_store.append(store_data[i])
+            else:
+                exp_store.append(buf_init[i])
+        cn_m = tf.next_check(f"vse{sew}.v masked: only active elements stored")
+        tag_m = f"tc{cn_m}"
+        tf.blank()
+        tf.comment(f"Masked store: mask=0b{mask_bits:04b}, only active written")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag_m}_src")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"la t1, {tag_m}_mask")
+        tf.code("vlm.v v0, (t1)")
+        # Pre-fill result_buf with buf_init pattern
+        tf.code(f"la t1, {tag_m}_buf_init")
+        tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+        tf.code("la t1, result_buf")
+        tf.code(f"vse{sew}.v {VREG_SRC2}, (t1)")
+        # Now do masked store
+        tf.code("SAVE_CSRS")
+        tf.code("la t1, result_buf")
+        tf.code(f"vse{sew}.v {VREG_DST}, (t1), v0.t")
+        tf.code(f"SET_TEST_NUM {cn_m}")
+        tf.code(f"CHECK_MEM result_buf, {tag_m}_exp, {nbytes}")
+        tf.code("CHECK_CSRS_UNCHANGED")
+
+        tf.data(".align 1")
+        tf.data_label(f"{tag_m}_mask", f"    .byte {mask_bits}")
+        tf.data_align(sew)
+        tf.data_label(f"{tag_m}_src", format_data_line(store_data, sew))
+        tf.data_label(f"{tag_m}_buf_init", format_data_line(buf_init, sew))
+        tf.data_label(f"{tag_m}_exp", format_data_line(exp_store, sew))
 
         tf.write(fpath)
         generated.append(str(fpath))
