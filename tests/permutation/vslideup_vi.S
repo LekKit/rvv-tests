@@ -19,6 +19,7 @@
  *    14 = vslideup.vi e64 off=1: result
  *    15 = vslideup.vi e64 off=2: result
  *    16 = vslideup.vi e64 off=3: result
+ *    17 = vslideup.vi e32 off=1 masked: result
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -232,6 +233,23 @@
     CHECK_MEM result_buf, tc16_exp, 32
     CHECK_CSRS_UNCHANGED
 
+    /* Masked up slide: mask=0b0101 */
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc17_src
+    vle32.v v16, (t1)
+    la t1, tc17_vd
+    vle32.v v8, (t1)
+    la t1, tc17_mask
+    vlm.v v0, (t1)
+    SAVE_CSRS
+    vslideup.vi v8, v16, 1, v0.t
+    SET_TEST_NUM 17
+    la t1, result_buf
+    vse32.v v8, (t1)
+    CHECK_MEM result_buf, tc17_exp, 16
+    CHECK_CSRS_UNCHANGED
+
     PASS_TEST
 
 .data
@@ -315,6 +333,16 @@ tc16_src:
     .dword 0x000000000000000a, 0x0000000000000014, 0x000000000000001e, 0x0000000000000028
 tc16_exp:
     .dword 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x000000000000000a
+.align 1
+tc17_mask:
+    .byte 5
+.align 2
+tc17_src:
+    .word 0x0000000a, 0x00000014, 0x0000001e, 0x00000028
+tc17_vd:
+    .word 0x000000aa, 0x000000bb, 0x000000cc, 0x000000dd
+tc17_exp:
+    .word 0x000000aa, 0x000000bb, 0x00000014, 0x000000dd
 
 .align 4
 result_buf:  .space 256

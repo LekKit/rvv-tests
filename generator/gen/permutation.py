@@ -11,8 +11,16 @@ vmv1r/2r/4r/8r, vmerge, vmv.v.
 from pathlib import Path
 
 from ..common import (
-    SEWS, FP_SEWS, NUM_ELEMS, M, U, format_data_line, format_hex,
-    f32_to_bits, f64_to_bits,
+    SEWS,
+    FP_SEWS,
+    NUM_ELEMS,
+    M,
+    U,
+    format_data_line,
+    format_hex,
+    f32_to_bits,
+    f64_to_bits,
+    witness_pattern,
 )
 from ..testfile import TestFile
 from ..emit import VREG_DST, VREG_SRC2, VREG_SRC1
@@ -32,7 +40,7 @@ def generate(base_dir: Path) -> list[str]:
                 if direction == "up":
                     # slideup: dest[i] = (i >= offset) ? src[i - offset] : dest[i]
                     # We init dest to 0, so for i < offset, dest[i] = 0
-                    exp = [0] * offset + src[:NUM_ELEMS - offset]
+                    exp = [0] * offset + src[: NUM_ELEMS - offset]
                 else:
                     # slidedown: dest[i] = (i + offset < vl) ? src[i + offset] : 0
                     exp = src[offset:] + [0] * offset
@@ -59,6 +67,57 @@ def generate(base_dir: Path) -> list[str]:
                 tf.data_label(f"{tag}_src", format_data_line(src, sew))
                 tf.data_label(f"{tag}_exp", format_data_line(exp, sew))
 
+        # Masked slide test (e32, offset=1, mask=0b0101)
+        sew = 32
+        offset = 1
+        mask_bits = 0b0101
+        src = [10, 20, 30, 40]
+        vd_init = [0xAA, 0xBB, 0xCC, 0xDD]
+        exp_masked = []
+        for i in range(NUM_ELEMS):
+            if direction == "up":
+                if i < offset:
+                    # slideup: i < offset → always vd (never written)
+                    exp_masked.append(vd_init[i])
+                elif mask_bits & (1 << i):
+                    exp_masked.append(src[i - offset])
+                else:
+                    exp_masked.append(vd_init[i])
+            else:
+                if mask_bits & (1 << i):
+                    if i + offset < NUM_ELEMS:
+                        exp_masked.append(src[i + offset])
+                    else:
+                        exp_masked.append(0)
+                else:
+                    exp_masked.append(vd_init[i])
+        nbytes_m = NUM_ELEMS * (sew // 8)
+        cn = tf.next_check(f"{mnemonic} e{sew} off={offset} masked: result")
+        tag = f"tc{cn}"
+        tf.blank()
+        tf.comment(f"Masked {direction} slide: mask=0b{mask_bits:04b}")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag}_src")
+        tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+        tf.code(f"la t1, {tag}_vd")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"la t1, {tag}_mask")
+        tf.code("vlm.v v0, (t1)")
+        tf.code("SAVE_CSRS")
+        tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}, {offset}, v0.t")
+        tf.code(f"SET_TEST_NUM {cn}")
+        tf.code("la t1, result_buf")
+        tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes_m}")
+        tf.code("CHECK_CSRS_UNCHANGED")
+        tf.data(".align 1")
+        tf.data_label(f"{tag}_mask", f"    .byte {mask_bits}")
+        tf.data_align(sew)
+        tf.data_label(f"{tag}_src", format_data_line(src, sew))
+        tf.data_label(f"{tag}_vd", format_data_line(vd_init, sew))
+        tf.data_label(f"{tag}_exp", format_data_line(exp_masked, sew))
+
         fpath = out / fname
         tf.write(fpath)
         generated.append(str(fpath))
@@ -71,7 +130,7 @@ def generate(base_dir: Path) -> list[str]:
             src = [10, 20, 30, 40]
             scalar = 99
             if direction == "up":
-                exp = [scalar] + src[:NUM_ELEMS - 1]
+                exp = [scalar] + src[: NUM_ELEMS - 1]
             else:
                 exp = src[1:] + [scalar]
             nbytes = NUM_ELEMS * (sew // 8)
@@ -96,12 +155,57 @@ def generate(base_dir: Path) -> list[str]:
             tf.data_label(f"{tag}_src", format_data_line(src, sew))
             tf.data_label(f"{tag}_exp", format_data_line(exp, sew))
 
+        # Masked slide1 test (e32, mask=0b0101)
+        sew = 32
+        mask_bits = 0b0101
+        src = [10, 20, 30, 40]
+        scalar = 99
+        vd_init = [0xAA, 0xBB, 0xCC, 0xDD]
+        if direction == "up":
+            unmasked = [scalar] + src[: NUM_ELEMS - 1]
+        else:
+            unmasked = src[1:] + [scalar]
+        exp_m = []
+        for i in range(NUM_ELEMS):
+            if mask_bits & (1 << i):
+                exp_m.append(unmasked[i])
+            else:
+                exp_m.append(vd_init[i])
+        nbytes_m = NUM_ELEMS * (sew // 8)
+        cn = tf.next_check(f"{mnemonic} e{sew} masked: result")
+        tag = f"tc{cn}"
+        tf.blank()
+        tf.comment(f"Masked slide1 {direction}: mask=0b{mask_bits:04b}")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag}_src")
+        tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+        tf.code(f"la t1, {tag}_vd")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"la t1, {tag}_mask")
+        tf.code("vlm.v v0, (t1)")
+        tf.code(f"li a0, {scalar}")
+        tf.code("SAVE_CSRS")
+        tf.code(f"{mnemonic} {VREG_DST}, {VREG_SRC2}, a0, v0.t")
+        tf.code(f"SET_TEST_NUM {cn}")
+        tf.code("la t1, result_buf")
+        tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes_m}")
+        tf.code("CHECK_CSRS_UNCHANGED")
+        tf.data(".align 1")
+        tf.data_label(f"{tag}_mask", f"    .byte {mask_bits}")
+        tf.data_align(sew)
+        tf.data_label(f"{tag}_src", format_data_line(src, sew))
+        tf.data_label(f"{tag}_vd", format_data_line(vd_init, sew))
+        tf.data_label(f"{tag}_exp", format_data_line(exp_m, sew))
+
         fpath = out / fname
         tf.write(fpath)
         generated.append(str(fpath))
 
     # --- vrgather.vv ---
     from ..vectors import gather_vv
+
     mnemonic = "vrgather.vv"
     fname = "vrgather_vv.S"
     tf = TestFile(mnemonic, "Gather elements by index vector")
@@ -137,6 +241,51 @@ def generate(base_dir: Path) -> list[str]:
             tf.data_label(f"{tag}_idx", format_data_line(indices, sew))
             tf.data_label(f"{tag}_exp", format_data_line(exp, sew))
 
+    # Masked gather (e32, mask=0b0101)
+    sew = 32
+    mask_bits = 0b0101
+    src_m = [100, 200, 300, 400]
+    idx_m = [3, 2, 1, 0]  # reverse gather
+    vd_init_m = [0xAA, 0xBB, 0xCC, 0xDD]
+    exp_masked_g = []
+    for i in range(NUM_ELEMS):
+        if mask_bits & (1 << i):
+            if U(idx_m[i], sew) < NUM_ELEMS:
+                exp_masked_g.append(src_m[U(idx_m[i], sew)])
+            else:
+                exp_masked_g.append(0)
+        else:
+            exp_masked_g.append(vd_init_m[i])
+    nbytes_m = NUM_ELEMS * (sew // 8)
+    cn = tf.next_check(f"vrgather.vv e{sew} masked: result")
+    tag = f"tc{cn}"
+    tf.blank()
+    tf.comment("Masked gather: mask=0b0101, tu/mu")
+    tf.code(f"li t0, {NUM_ELEMS}")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+    tf.code(f"la t1, {tag}_vd")
+    tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+    tf.code(f"la t1, {tag}_src")
+    tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+    tf.code(f"la t1, {tag}_idx")
+    tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
+    tf.code(f"la t1, {tag}_mask")
+    tf.code("vlm.v v0, (t1)")
+    tf.code("SAVE_CSRS")
+    tf.code(f"vrgather.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}, v0.t")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("la t1, result_buf")
+    tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes_m}")
+    tf.code("CHECK_CSRS_UNCHANGED")
+    tf.data(".align 1")
+    tf.data_label(f"{tag}_mask", f"    .byte {mask_bits}")
+    tf.data_align(sew)
+    tf.data_label(f"{tag}_vd", format_data_line(vd_init_m, sew))
+    tf.data_label(f"{tag}_src", format_data_line(src_m, sew))
+    tf.data_label(f"{tag}_idx", format_data_line(idx_m, sew))
+    tf.data_label(f"{tag}_exp", format_data_line(exp_masked_g, sew))
+
     fpath = out / fname
     tf.write(fpath)
     generated.append(str(fpath))
@@ -147,10 +296,10 @@ def generate(base_dir: Path) -> list[str]:
     tf = TestFile(mnemonic, "Compress active elements")
     for sew in SEWS:
         test_cases = [
-            ("all",   0b1111, [10, 20, 30, 40], [10, 20, 30, 40]),
-            ("none",  0b0000, [10, 20, 30, 40], [0, 0, 0, 0]),
-            ("even",  0b0101, [10, 20, 30, 40], [10, 30, 0, 0]),
-            ("odd",   0b1010, [10, 20, 30, 40], [20, 40, 0, 0]),
+            ("all", 0b1111, [10, 20, 30, 40], [10, 20, 30, 40]),
+            ("none", 0b0000, [10, 20, 30, 40], [0, 0, 0, 0]),
+            ("even", 0b0101, [10, 20, 30, 40], [10, 30, 0, 0]),
+            ("odd", 0b1010, [10, 20, 30, 40], [20, 40, 0, 0]),
             ("first", 0b0001, [10, 20, 30, 40], [10, 0, 0, 0]),
         ]
         for name, mask_val, src, exp in test_cases:
@@ -500,8 +649,8 @@ def generate(base_dir: Path) -> list[str]:
         src = [10, 20, 30, 40]
         test_cases_g16 = [
             ("identity", [0, 1, 2, 3]),
-            ("reverse",  [3, 2, 1, 0]),
-            ("splat",    [0, 0, 0, 0]),
+            ("reverse", [3, 2, 1, 0]),
+            ("splat", [0, 0, 0, 0]),
         ]
         for name, indices in test_cases_g16:
             exp = []
@@ -538,8 +687,7 @@ def generate(base_dir: Path) -> list[str]:
     generated.append(str(fpath))
 
     # --- vfslide1up.vf / vfslide1down.vf ---
-    for mnemonic, direction in [("vfslide1up.vf", "up"),
-                                ("vfslide1down.vf", "down")]:
+    for mnemonic, direction in [("vfslide1up.vf", "up"), ("vfslide1down.vf", "down")]:
         fname = mnemonic.replace(".", "_") + ".S"
         fpath = out / fname
         tf = TestFile(mnemonic, f"FP slide1 {direction}")
@@ -549,7 +697,7 @@ def generate(base_dir: Path) -> list[str]:
             src = [b(1.0), b(2.0), b(3.0), b(4.0)]
             scalar_bits = b(99.0)
             if direction == "up":
-                exp = [scalar_bits] + src[:NUM_ELEMS - 1]
+                exp = [scalar_bits] + src[: NUM_ELEMS - 1]
             else:
                 exp = src[1:] + [scalar_bits]
             nbytes = NUM_ELEMS * (sew // 8)
@@ -584,7 +732,7 @@ def generate(base_dir: Path) -> list[str]:
             src = [10, 20, 30, 40]
             for offset in [0, 1, 2, 3]:
                 if direction == "up":
-                    exp = [0] * offset + src[:NUM_ELEMS - offset]
+                    exp = [0] * offset + src[: NUM_ELEMS - offset]
                 else:
                     exp = src[offset:] + [0] * offset
                 nbytes = NUM_ELEMS * (sew // 8)

@@ -11,7 +11,7 @@ vsuxei = unordered indexed store, vsoxei = ordered indexed store.
 
 from pathlib import Path
 
-from ..common import SEWS, NUM_ELEMS, format_data_line, format_hex
+from ..common import SEWS, NUM_ELEMS, M, format_data_line, format_hex
 from ..testfile import TestFile
 from ..emit import VREG_DST, VREG_SRC2, VREG_SRC1
 
@@ -58,7 +58,9 @@ def generate(base_dir: Path) -> list[str]:
             tf.data_label(f"{tag}_exp", format_data_line(exp_identity, sew))
 
             # Test 2: reverse access
-            indices_reverse = [(NUM_ELEMS - 1 - i) * elem_bytes for i in range(NUM_ELEMS)]
+            indices_reverse = [
+                (NUM_ELEMS - 1 - i) * elem_bytes for i in range(NUM_ELEMS)
+            ]
             exp_reverse = list(reversed(src_data[:NUM_ELEMS]))
             cn = tf.next_check(f"{mnemonic} reverse: result")
             tag = f"tc{cn}"
@@ -103,6 +105,44 @@ def generate(base_dir: Path) -> list[str]:
             tf.data_label(f"{tag}_idx", format_data_line(indices_splat, sew))
             tf.data_label(f"{tag}_exp", format_data_line(exp_splat, sew))
 
+            # Test 4: masked indexed load (mask=0b0101)
+            mask_bits = 0b0101
+            vd_init = [0xDD & M(sew)] * NUM_ELEMS
+            indices_m = [i * elem_bytes for i in range(NUM_ELEMS)]
+            exp_masked = []
+            for i in range(NUM_ELEMS):
+                if mask_bits & (1 << i):
+                    exp_masked.append(src_data[i])
+                else:
+                    exp_masked.append(vd_init[i])
+            cn = tf.next_check(f"{mnemonic} masked: active+inactive")
+            tag = f"tc{cn}"
+            tf.blank()
+            tf.comment(f"Masked indexed load: mask=0b{mask_bits:04b}")
+            tf.code(f"li t0, {NUM_ELEMS}")
+            tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+            tf.code(f"la t1, {tag}_vd")
+            tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+            tf.code(f"la t1, {tag}_idx")
+            tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
+            tf.code(f"la t1, {tag}_mask")
+            tf.code("vlm.v v0, (t1)")
+            tf.code("SAVE_CSRS")
+            tf.code(f"la t1, {tag}_data")
+            tf.code(f"{mnemonic} {VREG_DST}, (t1), {VREG_SRC1}, v0.t")
+            tf.code(f"SET_TEST_NUM {cn}")
+            tf.code("la t1, result_buf")
+            tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+            tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
+            tf.code("CHECK_CSRS_UNCHANGED")
+            tf.data(".align 1")
+            tf.data_label(f"{tag}_mask", f"    .byte {mask_bits}")
+            tf.data_align(sew)
+            tf.data_label(f"{tag}_vd", format_data_line(vd_init, sew))
+            tf.data_label(f"{tag}_data", format_data_line(src_data, sew))
+            tf.data_label(f"{tag}_idx", format_data_line(indices_m, sew))
+            tf.data_label(f"{tag}_exp", format_data_line(exp_masked, sew))
+
             tf.write(fpath)
             generated.append(str(fpath))
 
@@ -143,7 +183,9 @@ def generate(base_dir: Path) -> list[str]:
             tf.data_label(f"{tag}_exp", format_data_line(src_vals, sew))
 
             # Test 2: reverse store
-            indices_reverse = [(NUM_ELEMS - 1 - i) * elem_bytes for i in range(NUM_ELEMS)]
+            indices_reverse = [
+                (NUM_ELEMS - 1 - i) * elem_bytes for i in range(NUM_ELEMS)
+            ]
             exp_reverse = list(reversed(src_vals))
             cn = tf.next_check(f"{mnemonic} reverse: result")
             tag = f"tc{cn}"
@@ -164,6 +206,49 @@ def generate(base_dir: Path) -> list[str]:
             tf.data_label(f"{tag}_data", format_data_line(src_vals, sew))
             tf.data_label(f"{tag}_idx", format_data_line(indices_reverse, sew))
             tf.data_label(f"{tag}_exp", format_data_line(exp_reverse, sew))
+
+            # Test 3: masked indexed store (mask=0b0101)
+            mask_bits = 0b0101
+            store_data = [0x11, 0x22, 0x33, 0x44]
+            store_data = [v & M(sew) for v in store_data]
+            buf_init = [0xFF & M(sew)] * NUM_ELEMS
+            indices_m = [i * elem_bytes for i in range(NUM_ELEMS)]
+            exp_store = []
+            for i in range(NUM_ELEMS):
+                if mask_bits & (1 << i):
+                    exp_store.append(store_data[i])
+                else:
+                    exp_store.append(buf_init[i])
+            cn = tf.next_check(f"{mnemonic} masked: only active stored")
+            tag = f"tc{cn}"
+            tf.blank()
+            tf.comment(f"Masked indexed store: mask=0b{mask_bits:04b}")
+            tf.code(f"li t0, {NUM_ELEMS}")
+            tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+            tf.code(f"la t1, {tag}_src")
+            tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+            tf.code(f"la t1, {tag}_idx")
+            tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
+            tf.code(f"la t1, {tag}_mask")
+            tf.code("vlm.v v0, (t1)")
+            # Pre-fill result_buf
+            tf.code(f"la t1, {tag}_buf_init")
+            tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+            tf.code("la t1, result_buf")
+            tf.code(f"vse{sew}.v {VREG_SRC2}, (t1)")
+            tf.code("SAVE_CSRS")
+            tf.code("la t1, result_buf")
+            tf.code(f"{mnemonic} {VREG_DST}, (t1), {VREG_SRC1}, v0.t")
+            tf.code(f"SET_TEST_NUM {cn}")
+            tf.code(f"CHECK_MEM result_buf, {tag}_exp, {nbytes}")
+            tf.code("CHECK_CSRS_UNCHANGED")
+            tf.data(".align 1")
+            tf.data_label(f"{tag}_mask", f"    .byte {mask_bits}")
+            tf.data_align(sew)
+            tf.data_label(f"{tag}_src", format_data_line(store_data, sew))
+            tf.data_label(f"{tag}_buf_init", format_data_line(buf_init, sew))
+            tf.data_label(f"{tag}_idx", format_data_line(indices_m, sew))
+            tf.data_label(f"{tag}_exp", format_data_line(exp_store, sew))
 
             tf.write(fpath)
             generated.append(str(fpath))
