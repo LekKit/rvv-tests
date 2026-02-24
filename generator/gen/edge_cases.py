@@ -286,6 +286,9 @@ def generate(base_dir: Path) -> list[str]:
     # Phase 7: small vl edge cases
     generated.append(_gen_small_vl(out))
 
+    # Phase 8: LMUL=4 and fractional LMUL tests
+    generated.append(_gen_lmul4_and_fractional(out))
+
     return generated
 
 
@@ -3452,6 +3455,129 @@ def _gen_small_vl(out: Path) -> str:
         tf.data_label(f"{tag}_init", format_data_line(init_pad, sew))
         exp_pad = [exp_rsum] + [0] * (NUM_ELEMS - 1)
         tf.data_label(f"{tag}_exp", format_data_line(exp_pad, sew))
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_lmul4_and_fractional(out: Path) -> str:
+    """Test LMUL=4 and fractional LMUL (mf2) with representative instructions.
+
+    LMUL=4: e32/m4 on VLEN=256 → VLMAX=32, spanning v8-v11.
+    Uses runtime vl and dynamic byte comparison.
+
+    Fractional LMUL: e32/mf2 → VLMAX=VLEN/64 (4 on VLEN=256).
+    Verifies correct behavior with reduced element count.
+    """
+    fpath = out / "lmul4_fract.S"
+    tf = TestFile(
+        "LMUL=4 and fractional LMUL",
+        "Tests vadd with e32/m4 (32 elements, 4 register groups) and "
+        "e32/mf2 (fractional, reduced VLMAX)")
+
+    sew = 32
+
+    # Test 1: vadd.vv e32/m4 — VLMAX elements
+    n4 = 32  # VLMAX for e32/m4 on VLEN=256
+    s2_4 = [(i + 1) * 10 for i in range(n4)]
+    s1_4 = [i + 1 for i in range(n4)]
+    exp_4 = [(a + b) & M(sew) for a, b in zip(s2_4, s1_4)]
+
+    cn = tf.next_check("vadd.vv e32/m4: boundary crossing")
+    tag = f"lm4f{cn}"
+    tf.blank()
+    tf.comment("LMUL=4 vadd.vv (e32/m4, vl=VLMAX)")
+    tf.code("vsetvli t0, x0, e32, m4, ta, ma")
+    tf.code("mv s6, t0")  # save vl
+    tf.code(f"la t1, {tag}_s2")
+    tf.code("vle32.v v16, (t1)")
+    tf.code(f"la t1, {tag}_s1")
+    tf.code("vle32.v v20, (t1)")
+    tf.code("SAVE_CSRS")
+    tf.code("vadd.vv v8, v16, v20")
+    tf.code(f"la t1, {tag}_res")
+    tf.code("vse32.v v8, (t1)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("slli a3, s6, 2")
+    tf.code(f"la a1, {tag}_res")
+    tf.code(f"la a2, {tag}_exp")
+    tf.code("call _mem_compare")
+    tf.code("FAIL_IF_NZ a0")
+
+    tf.data(".align 4")
+    tf.data_label(f"{tag}_s2", format_data_line(s2_4, sew))
+    tf.data_label(f"{tag}_s1", format_data_line(s1_4, sew))
+    tf.data_label(f"{tag}_exp", format_data_line(exp_4, sew))
+    tf.data_label(f"{tag}_res", f"    .space {n4 * 4}")
+
+    # Test 2: vadd.vv e32/mf2 — fractional LMUL
+    # VLMAX = VLEN/(SEW*2) = VLEN/64. On VLEN=256, VLMAX=4.
+    # On VLEN=128, VLMAX=2. Use runtime vl.
+    n_fract = 4  # generate data for VLEN=256
+    s2_f = [100, 200, 300, 400]
+    s1_f = [5, 10, 15, 20]
+    exp_f = [(a + b) & M(sew) for a, b in zip(s2_f, s1_f)]
+
+    cn = tf.next_check("vadd.vv e32/mf2: fractional LMUL")
+    tag = f"lm4f{cn}"
+    tf.blank()
+    tf.comment("Fractional LMUL vadd.vv (e32/mf2)")
+    tf.code("vsetvli t0, x0, e32, mf2, ta, ma")
+    tf.code("mv s6, t0")
+    tf.code(f"la t1, {tag}_s2")
+    tf.code("vle32.v v16, (t1)")
+    tf.code(f"la t1, {tag}_s1")
+    tf.code("vle32.v v20, (t1)")
+    tf.code("SAVE_CSRS")
+    tf.code("vadd.vv v8, v16, v20")
+    tf.code(f"la t1, {tag}_res")
+    tf.code("vse32.v v8, (t1)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("slli a3, s6, 2")
+    tf.code(f"la a1, {tag}_res")
+    tf.code(f"la a2, {tag}_exp")
+    tf.code("call _mem_compare")
+    tf.code("FAIL_IF_NZ a0")
+
+    tf.data(".align 4")
+    tf.data_label(f"{tag}_s2", format_data_line(s2_f, sew))
+    tf.data_label(f"{tag}_s1", format_data_line(s1_f, sew))
+    tf.data_label(f"{tag}_exp", format_data_line(exp_f, sew))
+    tf.data_label(f"{tag}_res", f"    .space {n_fract * 4}")
+
+    # Test 3: vmul.vv e16/mf4 — smaller fractional
+    # VLMAX = VLEN/(16*4) = VLEN/64. On VLEN=256, VLMAX=4.
+    sew16 = 16
+    s2_f16 = [100, 200, 300, 400]
+    s1_f16 = [2, 3, 4, 5]
+    exp_f16 = [(a * b) & M(sew16) for a, b in zip(s2_f16, s1_f16)]
+
+    cn = tf.next_check("vmul.vv e16/mf4: fractional LMUL")
+    tag = f"lm4f{cn}"
+    tf.blank()
+    tf.comment("Fractional LMUL vmul.vv (e16/mf4)")
+    tf.code("vsetvli t0, x0, e16, mf4, ta, ma")
+    tf.code("mv s6, t0")
+    tf.code(f"la t1, {tag}_s2")
+    tf.code("vle16.v v16, (t1)")
+    tf.code(f"la t1, {tag}_s1")
+    tf.code("vle16.v v20, (t1)")
+    tf.code("SAVE_CSRS")
+    tf.code("vmul.vv v8, v16, v20")
+    tf.code(f"la t1, {tag}_res")
+    tf.code("vse16.v v8, (t1)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("slli a3, s6, 1")  # nbytes = vl * 2
+    tf.code(f"la a1, {tag}_res")
+    tf.code(f"la a2, {tag}_exp")
+    tf.code("call _mem_compare")
+    tf.code("FAIL_IF_NZ a0")
+
+    tf.data(".align 2")
+    tf.data_label(f"{tag}_s2", format_data_line(s2_f16, sew16))
+    tf.data_label(f"{tag}_s1", format_data_line(s1_f16, sew16))
+    tf.data_label(f"{tag}_exp", format_data_line(exp_f16, sew16))
+    tf.data_label(f"{tag}_res", f"    .space {4 * 2}")
 
     tf.write(fpath)
     return str(fpath)

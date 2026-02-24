@@ -3,6 +3,7 @@ tests/edge_cases/fflags_set.S 2
 tests/edge_cases/fract_lmul.S 6
 tests/edge_cases/ghostwrite.S 4
 tests/edge_cases/lmul2_per_family.S 5
+tests/edge_cases/lmul4_fract.S 3
 tests/edge_cases/lmul_gt1_fp.S 3
 tests/edge_cases/lmul_gt1_int.S 3
 tests/edge_cases/mask_agnostic.S 2
