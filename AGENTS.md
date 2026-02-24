@@ -57,8 +57,8 @@ rvv-tests/
 │       ├── reduction.py           # Integer + FP reductions
 │       ├── mask.py                # Mask logical + population/find/set/iota/vid
 │       ├── permutation.py         # Slides, gathers, compress, moves, merges
-│       └── edge_cases.py          # vl=0, tail undisturbed, LMUL>1, fault-only-first, vill trap, fractional LMUL, tail/mask agnostic, stride, scatter, vxsat sticky, narrowing/widening
-├── tests/                         # Generated .S files (653 total) — fully regenerated on each run
+│       └── edge_cases.py          # vl=0, tail undisturbed, LMUL>1, fault-only-first, vill trap, fractional LMUL, tail/mask agnostic, stride, scatter, vxsat sticky, narrowing/widening, GhostWrite CVE-2024-44067, reserved encodings
+├── tests/                         # Generated .S files (655 total) — fully regenerated on each run
 │   ├── MANIFEST                   # List of all test file paths
 │   ├── config/                    # vsetvli (covers vsetvli/vsetivli/vsetvl)
 │   ├── load/                      # vle*, vlse*, vlm, vle*ff, vl*re*
@@ -89,7 +89,7 @@ rvv-tests/
 │   ├── reduction/                 # vredsum..vfwredusum
 │   ├── mask/                      # vmand..vid
 │   ├── permutation/               # vslide..vmv*r
-│   └── edge_cases/                # vl=0, tail, LMUL>1, vle32ff fault, vill trap, fractional LMUL, tail/mask agnostic, stride, scatter, vxsat sticky, narrowing/widening
+│   └── edge_cases/                # vl=0, tail, LMUL>1, vle32ff fault, vill trap, fractional LMUL, tail/mask agnostic, stride, scatter, vxsat sticky, narrowing/widening, GhostWrite CVE-2024-44067, reserved encodings
 └── fuzzer/                        # Planned AFL++ fuzzing (not yet implemented)
 ```
 

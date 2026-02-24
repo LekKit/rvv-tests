@@ -1,10 +1,13 @@
 tests/config/vsetvli.S
 tests/edge_cases/fflags_set.S
 tests/edge_cases/fract_lmul.S
+tests/edge_cases/ghostwrite.S
 tests/edge_cases/lmul_gt1_fp.S
 tests/edge_cases/lmul_gt1_int.S
 tests/edge_cases/mask_agnostic.S
 tests/edge_cases/narrowing_tail.S
+tests/edge_cases/reserved_encoding.S
+tests/edge_cases/rvv_detect.S
 tests/edge_cases/scatter_ordered.S
 tests/edge_cases/stride_negative.S
 tests/edge_cases/stride_zero.S

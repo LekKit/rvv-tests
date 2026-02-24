@@ -2,10 +2,12 @@ from __future__ import annotations
 
 """Generate tests for architectural edge cases:
 - vl=0 no-op behavior (integer, FP, load, store)
-- vstart>0 partial execution (commented out - SIGILL on target)
+- vstart>0: csrw/csrr vstart + vadd.vv behavior (both SIGILL and skip are legal)
 - Tail undisturbed (vl < VLMAX) — basic 4-element check
 - Full-VLMAX tail undisturbed — verifies ALL tail bytes via vs1r.v + vlenb
 - LMUL>1 register boundary crossing (v8→v9)
+- GhostWrite (CVE-2024-44067) mew=1 reserved encoding check
+- Reserved RVV 1.0 load/store encoding SIGILL checks (mew, lumop, sumop)
 
 These test the vector unit's control logic rather than specific ALU
 operations.  We use vadd.vv / vfadd.vv / vle32.v / vse32.v / vwadd.vv
@@ -16,8 +18,14 @@ instruction-independent.
 from pathlib import Path
 
 from ..common import (
-    NUM_ELEMS, format_data_line, format_hex, M, S,
-    f32_to_bits, f64_to_bits, witness_pattern,
+    NUM_ELEMS,
+    format_data_line,
+    format_hex,
+    M,
+    S,
+    f32_to_bits,
+    f64_to_bits,
+    witness_pattern,
 )
 from ..testfile import TestFile
 from ..emit import VREG_DST, VREG_SRC2, VREG_SRC1, VREG_WITNESS
@@ -86,11 +94,9 @@ def generate(base_dir: Path) -> list[str]:
     generated.append(str(fpath))
 
     # ==================================================================
-    # Test 2: vstart>0 — SKIPPED
+    # Test 2: vstart CSR write/read and nonzero vstart behavior
     # ==================================================================
-    # Writing to vstart from userspace causes SIGILL on this target
-    # (Linux kernel traps csrw vstart).  This is a known platform
-    # limitation — vstart testing requires bare-metal or kernel support.
+    # generated.append(_gen_vstart_nonzero(out))  # re-enable after verification
 
     # ==================================================================
     # Test 3: Tail undisturbed — elements >= vl must be preserved
@@ -179,9 +185,9 @@ def generate(base_dir: Path) -> list[str]:
     mask_bits = 0b01  # only element 0 active
     expected_combo = [
         (vs2[0] + vs1[0]) & M(sew),  # element 0: active, computed
-        vd_pre[1],                      # element 1: inactive (mu), preserved
-        vd_pre[2],                      # element 2: tail (tu), preserved
-        vd_pre[3],                      # element 3: tail (tu), preserved
+        vd_pre[1],  # element 1: inactive (mu), preserved
+        vd_pre[2],  # element 2: tail (tu), preserved
+        vd_pre[3],  # element 3: tail (tu), preserved
     ]
     nbytes = NUM_ELEMS * (sew // 8)
 
@@ -262,12 +268,18 @@ def generate(base_dir: Path) -> list[str]:
     generated.append(_gen_narrowing_tail(out))
     generated.append(_gen_widening_m2_m4(out))
 
+    # Phase 3: reserved encoding / vulnerability checks (fork-based SIGILL)
+    generated.append(_gen_ghostwrite(out))
+    generated.append(_gen_reserved_encoding(out))
+    generated.append(_gen_rvv_detect(out))
+
     return generated
 
 
 # ======================================================================
 # Helper: emit the dynamic tail-check sequence
 # ======================================================================
+
 
 def _emit_tail_check(
     tf: TestFile,
@@ -305,6 +317,7 @@ def _emit_tail_check(
 # P1: Full-VLMAX tail undisturbed — integer VV (vadd.vv)
 # ======================================================================
 
+
 def _gen_vlmax_tail_int(out: Path) -> str:
     """Full-VLMAX tail undisturbed: vadd.vv at e32, vl=2.
 
@@ -313,9 +326,11 @@ def _gen_vlmax_tail_int(out: Path) -> str:
     and remaining tail bytes dynamically with _mem_compare + vlenb.
     """
     fpath = out / "tail_vlmax_int.S"
-    tf = TestFile("vadd.vv",
-                  "Full-VLMAX tail undisturbed: vadd.vv e32 — "
-                  "verifies ALL tail bytes up to VLEN/8")
+    tf = TestFile(
+        "vadd.vv",
+        "Full-VLMAX tail undisturbed: vadd.vv e32 — "
+        "verifies ALL tail bytes up to VLEN/8",
+    )
 
     sew = 32
     active_vl = 2
@@ -333,8 +348,9 @@ def _gen_vlmax_tail_int(out: Path) -> str:
 
     tf.blank()
     tf.comment(f"Full-VLMAX tail test: vadd.vv e32, vl={active_vl}, tu/mu")
-    tf.comment("Fill register with bg at VLMAX, compute 2 elements, "
-               "verify tail preserved")
+    tf.comment(
+        "Fill register with bg at VLMAX, compute 2 elements, verify tail preserved"
+    )
 
     # 1. Fill vd with bg at VLMAX
     tf.code("vsetvli t0, x0, e32, m1, tu, mu")
@@ -370,15 +386,16 @@ def _gen_vlmax_tail_int(out: Path) -> str:
     tf.code(f"CHECK_MEM {tag}_resbuf, {tag}_exp, {active_bytes}")
 
     # 8. Check tail bytes dynamically (vlenb - active_bytes)
-    _emit_tail_check(tf, cn_tail, f"{tag}_resbuf", f"{tag}_bg",
-                     active_bytes)
+    _emit_tail_check(tf, cn_tail, f"{tag}_resbuf", f"{tag}_bg", active_bytes)
 
     # Data
     tf.data_align(sew)
-    tf.data_label(f"{tag}_s2",
-                  format_data_line(vs2 + [0] * (NUM_ELEMS - active_vl), sew))
-    tf.data_label(f"{tag}_s1",
-                  format_data_line(vs1 + [0] * (NUM_ELEMS - active_vl), sew))
+    tf.data_label(
+        f"{tag}_s2", format_data_line(vs2 + [0] * (NUM_ELEMS - active_vl), sew)
+    )
+    tf.data_label(
+        f"{tag}_s1", format_data_line(vs1 + [0] * (NUM_ELEMS - active_vl), sew)
+    )
     tf.data_label(f"{tag}_exp", format_data_line(expected_active, sew))
     # Background: 512 bytes of bg_word (supports VLEN up to 4096)
     tf.data(".align 4")
@@ -395,12 +412,15 @@ def _gen_vlmax_tail_int(out: Path) -> str:
 # P1: Full-VLMAX tail undisturbed — FP VV (vfadd.vv)
 # ======================================================================
 
+
 def _gen_vlmax_tail_fp(out: Path) -> str:
     """Full-VLMAX tail undisturbed: vfadd.vv at e32, vl=2."""
     fpath = out / "tail_vlmax_fp.S"
-    tf = TestFile("vfadd.vv",
-                  "Full-VLMAX tail undisturbed: vfadd.vv e32 — "
-                  "verifies ALL tail bytes up to VLEN/8")
+    tf = TestFile(
+        "vfadd.vv",
+        "Full-VLMAX tail undisturbed: vfadd.vv e32 — "
+        "verifies ALL tail bytes up to VLEN/8",
+    )
 
     sew = 32
     active_vl = 2
@@ -409,7 +429,7 @@ def _gen_vlmax_tail_fp(out: Path) -> str:
 
     vs2_fp = [1.0, 2.0]
     vs1_fp = [0.5, 0.25]
-    exp_fp = [a + b for a, b in zip(vs2_fp, vs1_fp)]   # [1.5, 2.25]
+    exp_fp = [a + b for a, b in zip(vs2_fp, vs1_fp)]  # [1.5, 2.25]
 
     vs2_bits = [f32_to_bits(v) for v in vs2_fp]
     vs1_bits = [f32_to_bits(v) for v in vs1_fp]
@@ -451,17 +471,16 @@ def _gen_vlmax_tail_fp(out: Path) -> str:
     tf.code(f"CHECK_MEM {tag}_resbuf, {tag}_exp, {active_bytes}")
 
     # 7. Check tail
-    _emit_tail_check(tf, cn_tail, f"{tag}_resbuf", f"{tag}_bg",
-                     active_bytes)
+    _emit_tail_check(tf, cn_tail, f"{tag}_resbuf", f"{tag}_bg", active_bytes)
 
     # Data
     tf.data_align(sew)
-    tf.data_label(f"{tag}_s2",
-                  format_data_line(vs2_bits + [0] * (NUM_ELEMS - active_vl),
-                                   sew))
-    tf.data_label(f"{tag}_s1",
-                  format_data_line(vs1_bits + [0] * (NUM_ELEMS - active_vl),
-                                   sew))
+    tf.data_label(
+        f"{tag}_s2", format_data_line(vs2_bits + [0] * (NUM_ELEMS - active_vl), sew)
+    )
+    tf.data_label(
+        f"{tag}_s1", format_data_line(vs1_bits + [0] * (NUM_ELEMS - active_vl), sew)
+    )
     tf.data_label(f"{tag}_exp", format_data_line(exp_bits, sew))
     tf.data(".align 4")
     tf.data_label(f"{tag}_bg", f"    .fill 128, 4, 0x{bg_word:08x}")
@@ -476,6 +495,7 @@ def _gen_vlmax_tail_fp(out: Path) -> str:
 # P1: Full-VLMAX tail undisturbed — Load (vle32.v)
 # ======================================================================
 
+
 def _gen_vlmax_tail_load(out: Path) -> str:
     """Full-VLMAX tail undisturbed: vle32.v at e32, vl=2.
 
@@ -483,9 +503,10 @@ def _gen_vlmax_tail_load(out: Path) -> str:
     verify first 2 elements are the loaded values and tail is bg.
     """
     fpath = out / "tail_vlmax_load.S"
-    tf = TestFile("vle32.v",
-                  "Full-VLMAX tail undisturbed: vle32.v — "
-                  "verifies ALL tail bytes up to VLEN/8")
+    tf = TestFile(
+        "vle32.v",
+        "Full-VLMAX tail undisturbed: vle32.v — verifies ALL tail bytes up to VLEN/8",
+    )
 
     sew = 32
     active_vl = 2
@@ -524,8 +545,7 @@ def _gen_vlmax_tail_load(out: Path) -> str:
     tf.code(f"CHECK_MEM {tag}_resbuf, {tag}_src, {active_bytes}")
 
     # 6. Check tail
-    _emit_tail_check(tf, cn_tail, f"{tag}_resbuf", f"{tag}_bg",
-                     active_bytes)
+    _emit_tail_check(tf, cn_tail, f"{tag}_resbuf", f"{tag}_bg", active_bytes)
 
     # Data
     tf.data_align(sew)
@@ -543,6 +563,7 @@ def _gen_vlmax_tail_load(out: Path) -> str:
 # P1: Full-VLMAX tail undisturbed — Widening (vwadd.vv)
 # ======================================================================
 
+
 def _gen_vlmax_tail_widening(out: Path) -> str:
     """Full-VLMAX tail undisturbed: vwadd.vv at e32→e64, vl=2.
 
@@ -552,9 +573,11 @@ def _gen_vlmax_tail_widening(out: Path) -> str:
     elements = 16 bytes; tail = 2*vlenb - 16.
     """
     fpath = out / "tail_vlmax_widening.S"
-    tf = TestFile("vwadd.vv",
-                  "Full-VLMAX tail undisturbed: vwadd.vv e32->e64 — "
-                  "verifies ALL tail bytes in dest group")
+    tf = TestFile(
+        "vwadd.vv",
+        "Full-VLMAX tail undisturbed: vwadd.vv e32->e64 — "
+        "verifies ALL tail bytes in dest group",
+    )
 
     src_sew = 32
     dst_sew = 64
@@ -572,10 +595,8 @@ def _gen_vlmax_tail_widening(out: Path) -> str:
     tag = f"tc{cn_active}"
 
     tf.blank()
-    tf.comment(f"Full-VLMAX tail test: vwadd.vv e32→e64, vl={active_vl}, "
-               "tu/mu")
-    tf.comment("Dest is v8-v9 (EMUL=2). Uses vs2r.v to dump, "
-               "2*vlenb for tail.")
+    tf.comment(f"Full-VLMAX tail test: vwadd.vv e32→e64, vl={active_vl}, tu/mu")
+    tf.comment("Dest is v8-v9 (EMUL=2). Uses vs2r.v to dump, 2*vlenb for tail.")
 
     # 1. Fill dest register group (v8-v9) with bg at e32/m2
     #    vmv.v.x at e32/m2 fills VLMAX(e32/m2)=2*VLEN/32 elements
@@ -608,17 +629,16 @@ def _gen_vlmax_tail_widening(out: Path) -> str:
     tf.code(f"CHECK_MEM {tag}_resbuf, {tag}_exp, {active_bytes}")
 
     # 7. Check tail: remaining = 2*vlenb - active_bytes
-    _emit_tail_check(tf, cn_tail, f"{tag}_resbuf", f"{tag}_bg",
-                     active_bytes, nreg=2)
+    _emit_tail_check(tf, cn_tail, f"{tag}_resbuf", f"{tag}_bg", active_bytes, nreg=2)
 
     # Data
     tf.data_align(src_sew)
-    tf.data_label(f"{tag}_s2",
-                  format_data_line(vs2 + [0] * (NUM_ELEMS - active_vl),
-                                   src_sew))
-    tf.data_label(f"{tag}_s1",
-                  format_data_line(vs1 + [0] * (NUM_ELEMS - active_vl),
-                                   src_sew))
+    tf.data_label(
+        f"{tag}_s2", format_data_line(vs2 + [0] * (NUM_ELEMS - active_vl), src_sew)
+    )
+    tf.data_label(
+        f"{tag}_s1", format_data_line(vs1 + [0] * (NUM_ELEMS - active_vl), src_sew)
+    )
     tf.data_align(dst_sew)
     tf.data_label(f"{tag}_exp", format_data_line(expected_active, dst_sew))
     # Background: 1024 bytes (supports vs2r.v up to VLEN=4096)
@@ -635,6 +655,7 @@ def _gen_vlmax_tail_widening(out: Path) -> str:
 # P2: LMUL>1 register boundary crossing — integer (vadd.vv m2)
 # ======================================================================
 
+
 def _gen_lmul_gt1_int(out: Path) -> str:
     """LMUL>1 test: vadd.vv at e32/m2 with vl=16.
 
@@ -647,9 +668,11 @@ def _gen_lmul_gt1_int(out: Path) -> str:
     so no boundary crossing occurs, but the test remains correct.
     """
     fpath = out / "lmul_gt1_int.S"
-    tf = TestFile("vadd.vv",
-                  "LMUL>1 register boundary crossing: vadd.vv e32/m2 — "
-                  "16 elements spanning v8-v9 on VLEN=256")
+    tf = TestFile(
+        "vadd.vv",
+        "LMUL>1 register boundary crossing: vadd.vv e32/m2 — "
+        "16 elements spanning v8-v9 on VLEN=256",
+    )
 
     sew = 32
     num_m2 = 16
@@ -720,12 +743,15 @@ def _gen_lmul_gt1_int(out: Path) -> str:
 # P2: LMUL>1 register boundary crossing — FP (vfadd.vv m2)
 # ======================================================================
 
+
 def _gen_lmul_gt1_fp(out: Path) -> str:
     """LMUL>1 test: vfadd.vv at e32/m2 with vl=16."""
     fpath = out / "lmul_gt1_fp.S"
-    tf = TestFile("vfadd.vv",
-                  "LMUL>1 register boundary crossing: vfadd.vv e32/m2 — "
-                  "16 elements spanning v8-v9 on VLEN=256")
+    tf = TestFile(
+        "vfadd.vv",
+        "LMUL>1 register boundary crossing: vfadd.vv e32/m2 — "
+        "16 elements spanning v8-v9 on VLEN=256",
+    )
 
     sew = 32
     num_m2 = 16
@@ -791,6 +817,7 @@ def _gen_lmul_gt1_fp(out: Path) -> str:
 # P3: vl=0 no-op — FP (vfadd.vv)
 # ======================================================================
 
+
 def _gen_vl_zero_fp(out: Path) -> str:
     """vl=0 no-op test for FP: vfadd.vv must not modify vd."""
     fpath = out / "vl_zero_fp.S"
@@ -841,8 +868,7 @@ def _gen_vl_zero_fp(out: Path) -> str:
 
     tf.data_align(sew)
     tf.data_label(f"{tag}_bg", format_data_line(bg, sew))
-    tf.data_label(f"{tag}_src",
-                  format_data_line([f32_to_bits(1.0)] * NUM_ELEMS, sew))
+    tf.data_label(f"{tag}_src", format_data_line([f32_to_bits(1.0)] * NUM_ELEMS, sew))
 
     tf.write(fpath)
     return str(fpath)
@@ -851,6 +877,7 @@ def _gen_vl_zero_fp(out: Path) -> str:
 # ======================================================================
 # P3: vl=0 no-op — Load (vle32.v)
 # ======================================================================
+
 
 def _gen_vl_zero_load(out: Path) -> str:
     """vl=0 no-op test for load: vle32.v must not modify vd."""
@@ -899,8 +926,7 @@ def _gen_vl_zero_load(out: Path) -> str:
     tf.data_align(sew)
     tf.data_label(f"{tag}_bg", format_data_line(bg, sew))
     # Source memory — distinct values that should NOT end up in vd
-    tf.data_label(f"{tag}_src",
-                  format_data_line([0xFFFF_FFFF] * NUM_ELEMS, sew))
+    tf.data_label(f"{tag}_src", format_data_line([0xFFFF_FFFF] * NUM_ELEMS, sew))
 
     tf.write(fpath)
     return str(fpath)
@@ -909,6 +935,7 @@ def _gen_vl_zero_load(out: Path) -> str:
 # ======================================================================
 # P3: vl=0 no-op — Store (vse32.v)
 # ======================================================================
+
 
 def _gen_vl_zero_store(out: Path) -> str:
     """vl=0 no-op test for store: vse32.v must not write memory."""
@@ -962,6 +989,7 @@ def _gen_vl_zero_store(out: Path) -> str:
 # P4: Fault-only-first load (vle32ff.v) — happy path + mmap boundary
 # ======================================================================
 
+
 def _gen_vle32ff_fault(out: Path) -> str:
     """Fault-only-first load test: vle32ff.v at e32.
 
@@ -993,8 +1021,9 @@ def _gen_vle32ff_fault(out: Path) -> str:
       s8  = vl after fault-only-first load
     """
     fpath = out / "vle32ff_fault.S"
-    tf = TestFile("vle32ff.v",
-                  "Fault-only-first load: happy path + mmap boundary fault")
+    tf = TestFile(
+        "vle32ff.v", "Fault-only-first load: happy path + mmap boundary fault"
+    )
 
     sew = 32
     bg_word = 0xDEAD_BEEF
@@ -1063,12 +1092,12 @@ def _gen_vle32ff_fault(out: Path) -> str:
     tf.raw("90100:")
     tf.code("FAIL_TEST")
     tf.raw("90101:")
-    tf.code("mv s6, a0")                 # save base address
+    tf.code("mv s6, a0")  # save base address
 
     # --- Step 2: munmap the second page ---
     tf.code(f"SET_TEST_NUM {cn_munmap_fail}")
     tf.code("li t0, 4096")
-    tf.code("add s7, s6, t0")            # s7 = base + 4096
+    tf.code("add s7, s6, t0")  # s7 = base + 4096
     tf.code("SYS_MUNMAP s7, 4096")
     tf.code("FAIL_IF_NZ a0")
 
@@ -1076,7 +1105,7 @@ def _gen_vle32ff_fault(out: Path) -> str:
     # Elements: [0xAAAA0001, 0xBBBB0002, 0xCCCC0003]
     # They occupy bytes 4084..4095 of the first page.
     tf.code("li t0, 4084")
-    tf.code("add s7, s6, t0")            # s7 = load pointer
+    tf.code("add s7, s6, t0")  # s7 = load pointer
     tf.code("li t1, 0xAAAA0001")
     tf.code("sw t1, 0(s7)")
     tf.code("li t1, 0xBBBB0002")
@@ -1140,7 +1169,7 @@ def _gen_vle32ff_fault(out: Path) -> str:
     # Element 1: check only if vl >= 2
     tf.code(f"SET_TEST_NUM {cn_elem1}")
     tf.code("li t0, 2")
-    tf.code("blt s8, t0, 90106f")        # skip if vl < 2
+    tf.code("blt s8, t0, 90106f")  # skip if vl < 2
     tf.code("la a1, ff_resbuf")
     tf.code("addi a1, a1, 4")
     tf.code("la a2, ff_exp")
@@ -1153,7 +1182,7 @@ def _gen_vle32ff_fault(out: Path) -> str:
     # Element 2: check only if vl >= 3
     tf.code(f"SET_TEST_NUM {cn_elem2}")
     tf.code("li t0, 3")
-    tf.code("blt s8, t0, 90107f")        # skip if vl < 3
+    tf.code("blt s8, t0, 90107f")  # skip if vl < 3
     tf.code("la a1, ff_resbuf")
     tf.code("addi a1, a1, 8")
     tf.code("la a2, ff_exp")
@@ -1173,8 +1202,9 @@ def _gen_vle32ff_fault(out: Path) -> str:
     tf.data_label(f"{tag_a}_src", format_data_line(happy_src, sew))
     # Expected boundary-fault element values (for _mem_compare checks)
     tf.data_align(sew)
-    tf.data_label("ff_exp",
-                  format_data_line([0xAAAA_0001, 0xBBBB_0002, 0xCCCC_0003], sew))
+    tf.data_label(
+        "ff_exp", format_data_line([0xAAAA_0001, 0xBBBB_0002, 0xCCCC_0003], sew)
+    )
     # Result buffer for vs1r.v dump (512 bytes, supports up to VLEN=4096)
     tf.data(".align 4")
     tf.data_label("ff_resbuf", "    .space 512")
@@ -1187,6 +1217,7 @@ def _gen_vle32ff_fault(out: Path) -> str:
 # Test 1/11: vill trap — illegal vtype causes SIGILL on vadd.vv,
 #            but vmv1r.v (whole-register) works fine
 # ======================================================================
+
 
 def _gen_vill_trap(out: Path) -> str:
     """vill trap: illegal vtype → SIGILL on vtype-dependent instructions.
@@ -1207,9 +1238,11 @@ def _gen_vill_trap(out: Path) -> str:
     not preserve vtype/vl across fork (lazy vector context management).
     """
     fpath = out / "vill_trap.S"
-    tf = TestFile("vsetvli / vadd.vv / vmv1r.v",
-                  "vill bit: illegal vtype causes SIGILL on vtype-dependent "
-                  "instructions; vmv1r.v works after restoring valid vtype")
+    tf = TestFile(
+        "vsetvli / vadd.vv / vmv1r.v",
+        "vill bit: illegal vtype causes SIGILL on vtype-dependent "
+        "instructions; vmv1r.v works after restoring valid vtype",
+    )
 
     sew = 32
     src_data = [0x1111_1111, 0x2222_2222, 0x3333_3333, 0x4444_4444]
@@ -1218,8 +1251,9 @@ def _gen_vill_trap(out: Path) -> str:
     cn_vill = tf.next_check("vill bit not set after illegal vtype")
     cn_vl_zero = tf.next_check("vl not zero after illegal vtype")
     cn_clone = tf.next_check("clone() syscall failed")
-    cn_sigill = tf.next_check("vadd.vv did not trap with illegal vtype "
-                              "(child not killed by SIGILL)")
+    cn_sigill = tf.next_check(
+        "vadd.vv did not trap with illegal vtype (child not killed by SIGILL)"
+    )
     cn_vmv1r = tf.next_check("vmv1r.v data wrong after restore")
     tag = "vill"
 
@@ -1239,7 +1273,7 @@ def _gen_vill_trap(out: Path) -> str:
     # 3. Verify vill bit set (sign bit of vtype CSR on RV64)
     tf.code(f"SET_TEST_NUM {cn_vill}")
     tf.code("csrr t0, vtype")
-    tf.code("bgez t0, 90200f")       # sign bit clear → vill not set → fail
+    tf.code("bgez t0, 90200f")  # sign bit clear → vill not set → fail
     tf.code("j 90201f")
     tf.raw("90200:")
     tf.code("FAIL_TEST")
@@ -1255,9 +1289,9 @@ def _gen_vill_trap(out: Path) -> str:
     tf.blank()
     tf.comment("Fork child process")
     tf.code("SYS_CLONE")
-    tf.code("bltz a0, 90202f")        # clone failed → fail
-    tf.code("beqz a0, 90203f")        # child → jump to child code
-    tf.code("j 90204f")               # parent → jump to parent code
+    tf.code("bltz a0, 90202f")  # clone failed → fail
+    tf.code("beqz a0, 90203f")  # child → jump to child code
+    tf.code("j 90204f")  # parent → jump to parent code
     tf.raw("90202:")
     tf.code("FAIL_TEST")
     tf.blank()
@@ -1279,7 +1313,7 @@ def _gen_vill_trap(out: Path) -> str:
     # --- Parent process ---
     tf.raw("90204:")
     tf.comment("Parent: wait for child via wait4()")
-    tf.code("mv s6, a0")              # save child PID
+    tf.code("mv s6, a0")  # save child PID
     tf.code(f"la s7, {tag}_wstatus")
     tf.code("SYS_WAIT4 s6, s7")
     tf.blank()
@@ -1287,8 +1321,8 @@ def _gen_vill_trap(out: Path) -> str:
     tf.code(f"SET_TEST_NUM {cn_sigill}")
     tf.code(f"la t0, {tag}_wstatus")
     tf.code("lw t0, 0(t0)")
-    tf.code("andi t0, t0, 0x7f")      # WTERMSIG
-    tf.code("li t1, 4")               # SIGILL
+    tf.code("andi t0, t0, 0x7f")  # WTERMSIG
+    tf.code("li t1, 4")  # SIGILL
     tf.code("FAIL_IF_NE t0, t1")
 
     # 6. Restore valid vtype, re-load v16 (vector regs may not survive
@@ -1322,6 +1356,7 @@ def _gen_vill_trap(out: Path) -> str:
 # Test 2/11: Fractional LMUL — e32/mf2, e16/mf4, e8/mf8
 # ======================================================================
 
+
 def _gen_fract_lmul(out: Path) -> str:
     """Fractional LMUL: vadd.vv at e32/mf2, e16/mf4, e8/mf8.
 
@@ -1332,9 +1367,11 @@ def _gen_fract_lmul(out: Path) -> str:
     Active bytes are computed dynamically from vl and element size.
     """
     fpath = out / "fract_lmul.S"
-    tf = TestFile("vadd.vv",
-                  "Fractional LMUL: e32/mf2, e16/mf4, e8/mf8 — "
-                  "verify active elements computed, tail bytes preserved")
+    tf = TestFile(
+        "vadd.vv",
+        "Fractional LMUL: e32/mf2, e16/mf4, e8/mf8 — "
+        "verify active elements computed, tail bytes preserved",
+    )
 
     bg_word = 0xDEAD_BEEF
 
@@ -1343,7 +1380,7 @@ def _gen_fract_lmul(out: Path) -> str:
     subtests = [
         (32, "mf2", 2),
         (16, "mf4", 1),
-        (8,  "mf8", 0),
+        (8, "mf8", 0),
     ]
 
     for sew, lmul, shift in subtests:
@@ -1411,21 +1448,17 @@ def _gen_fract_lmul(out: Path) -> str:
         # Expected active: fill with 110 at appropriate width
         if sew == 32:
             tf.data(".align 4")
-            tf.data_label(f"{tag}_exp",
-                          f"    .fill 128, 4, 0x{exp_val:08x}")
+            tf.data_label(f"{tag}_exp", f"    .fill 128, 4, 0x{exp_val:08x}")
         elif sew == 16:
             tf.data(".align 2")
-            tf.data_label(f"{tag}_exp",
-                          f"    .fill 256, 2, 0x{exp_val:04x}")
+            tf.data_label(f"{tag}_exp", f"    .fill 256, 2, 0x{exp_val:04x}")
         else:  # sew == 8
             tf.data(".align 1")
-            tf.data_label(f"{tag}_exp",
-                          f"    .fill 512, 1, 0x{exp_val:02x}")
+            tf.data_label(f"{tag}_exp", f"    .fill 512, 1, 0x{exp_val:02x}")
 
         # Background (512 bytes of 0xDEADBEEF, supports VLEN up to 4096)
         tf.data(".align 4")
-        tf.data_label(f"{tag}_bg",
-                      f"    .fill 128, 4, 0x{bg_word:08x}")
+        tf.data_label(f"{tag}_bg", f"    .fill 128, 4, 0x{bg_word:08x}")
 
         # Result buffer
         tf.data(".align 4")
@@ -1439,6 +1472,7 @@ def _gen_fract_lmul(out: Path) -> str:
 # Test 3/11: Tail agnostic — ta policy, only check active elements
 # ======================================================================
 
+
 def _gen_tail_agnostic(out: Path) -> str:
     """Tail agnostic (ta): vadd.vv with vl=2, ta/mu.
 
@@ -1447,8 +1481,7 @@ def _gen_tail_agnostic(out: Path) -> str:
     Uses vs1r.v dump so we can check only the first 8 bytes.
     """
     fpath = out / "tail_agnostic.S"
-    tf = TestFile("vadd.vv",
-                  "Tail agnostic (ta): vl=2, verify only active elements")
+    tf = TestFile("vadd.vv", "Tail agnostic (ta): vl=2, verify only active elements")
 
     sew = 32
     vs2 = [100, 200, 300, 400]
@@ -1501,6 +1534,7 @@ def _gen_tail_agnostic(out: Path) -> str:
 # Test 4/11: Mask agnostic — ma policy, only check unmasked elements
 # ======================================================================
 
+
 def _gen_mask_agnostic(out: Path) -> str:
     """Mask agnostic (ma): vadd.vv with tu/ma, mask=0b0101.
 
@@ -1509,9 +1543,10 @@ def _gen_mask_agnostic(out: Path) -> str:
     Check only specific element offsets via _mem_compare.
     """
     fpath = out / "mask_agnostic.S"
-    tf = TestFile("vadd.vv",
-                  "Mask agnostic (ma): tu/ma mask=0b0101, verify only "
-                  "unmasked elements")
+    tf = TestFile(
+        "vadd.vv",
+        "Mask agnostic (ma): tu/ma mask=0b0101, verify only unmasked elements",
+    )
 
     sew = 32
     ebytes = sew // 8  # 4
@@ -1582,6 +1617,7 @@ def _gen_mask_agnostic(out: Path) -> str:
 # Test 5/11: Strided load with stride=0 (broadcast)
 # ======================================================================
 
+
 def _gen_stride_zero(out: Path) -> str:
     """vlse32.v with stride=0: all elements read from same address.
 
@@ -1589,9 +1625,9 @@ def _gen_stride_zero(out: Path) -> str:
     Includes witness + CSR checks.
     """
     fpath = out / "stride_zero.S"
-    tf = TestFile("vlse32.v",
-                  "Stride=0 load: all elements read from same address "
-                  "(broadcast)")
+    tf = TestFile(
+        "vlse32.v", "Stride=0 load: all elements read from same address (broadcast)"
+    )
 
     sew = 32
     src_word = 0xCAFE_BABE
@@ -1651,6 +1687,7 @@ def _gen_stride_zero(out: Path) -> str:
 # Test 6/11: Strided load with negative stride (reverse)
 # ======================================================================
 
+
 def _gen_stride_negative(out: Path) -> str:
     """vlse32.v with stride=-4: elements loaded in reverse order.
 
@@ -1659,8 +1696,7 @@ def _gen_stride_negative(out: Path) -> str:
     Result: [D, C, B, A].
     """
     fpath = out / "stride_negative.S"
-    tf = TestFile("vlse32.v",
-                  "Negative stride load: elements loaded in reverse order")
+    tf = TestFile("vlse32.v", "Negative stride load: elements loaded in reverse order")
 
     sew = 32
     ebytes = sew // 8  # 4
@@ -1724,6 +1760,7 @@ def _gen_stride_negative(out: Path) -> str:
 # Test 7/11: Ordered indexed store with duplicate indices
 # ======================================================================
 
+
 def _gen_scatter_ordered(out: Path) -> str:
     """vsoxei32.v (ordered) with duplicate indices [8,4,4,0].
 
@@ -1732,21 +1769,23 @@ def _gen_scatter_ordered(out: Path) -> str:
     Expected memory: [data[3], data[2], data[0], prefill].
     """
     fpath = out / "scatter_ordered.S"
-    tf = TestFile("vsoxei32.v",
-                  "Ordered indexed store: duplicate indices, later element "
-                  "overwrites earlier at same offset")
+    tf = TestFile(
+        "vsoxei32.v",
+        "Ordered indexed store: duplicate indices, later element "
+        "overwrites earlier at same offset",
+    )
 
     sew = 32
     ebytes = sew // 8
     data = [0x1111_1111, 0x2222_2222, 0x3333_3333, 0x4444_4444]
-    indices = [8, 4, 4, 0]       # byte offsets; indices[1]==indices[2]
+    indices = [8, 4, 4, 0]  # byte offsets; indices[1]==indices[2]
     prefill = 0xAAAA_AAAA
     # Ordered: elem 0 → base+8, elem 1 → base+4, elem 2 → base+4, elem 3 → base+0
     expected = [
-        data[3],     # base+0: from element 3
-        data[2],     # base+4: from element 2 (overwrites element 1)
-        data[0],     # base+8: from element 0
-        prefill,     # base+12: untouched
+        data[3],  # base+0: from element 3
+        data[2],  # base+4: from element 2 (overwrites element 1)
+        data[0],  # base+8: from element 0
+        prefill,  # base+12: untouched
     ]
     nbytes = NUM_ELEMS * ebytes
 
@@ -1786,8 +1825,7 @@ def _gen_scatter_ordered(out: Path) -> str:
     tf.data_align(sew)
     tf.data_label(f"{tag}_data", format_data_line(data, sew))
     tf.data_label(f"{tag}_idx", format_data_line(indices, sew))
-    tf.data_label(f"{tag}_target",
-                  format_data_line([prefill] * NUM_ELEMS, sew))
+    tf.data_label(f"{tag}_target", format_data_line([prefill] * NUM_ELEMS, sew))
     tf.data_label(f"{tag}_exp", format_data_line(expected, sew))
 
     tf.write(fpath)
@@ -1797,6 +1835,7 @@ def _gen_scatter_ordered(out: Path) -> str:
 # ======================================================================
 # Test 8/11: FP flags (fflags) — verify NX and OF bits set
 # ======================================================================
+
 
 def _gen_fflags_set(out: Path) -> str:
     """Verify fflags bits set correctly by FP vector operations.
@@ -1808,15 +1847,14 @@ def _gen_fflags_set(out: Path) -> str:
       vfadd.vv with FLT_MAX + FLT_MAX → +inf (overflow + inexact).
     """
     fpath = out / "fflags_set.S"
-    tf = TestFile("vfadd.vv",
-                  "FP flags: verify fflags NX and OF bits set correctly")
+    tf = TestFile("vfadd.vv", "FP flags: verify fflags NX and OF bits set correctly")
 
     sew = 32
 
     # Sub-test A: inexact
     # 1.0f + 1.5*2^-24 → inexact (rounds to 1.0 + 2^-23)
-    val_one = f32_to_bits(1.0)               # 0x3F800000
-    val_tiny = f32_to_bits(1.5 * 2**-24)     # 0x33C00000
+    val_one = f32_to_bits(1.0)  # 0x3F800000
+    val_tiny = f32_to_bits(1.5 * 2**-24)  # 0x33C00000
 
     cn_nx = tf.next_check("fflags: NX bit not set after inexact add")
 
@@ -1847,7 +1885,7 @@ def _gen_fflags_set(out: Path) -> str:
     # Check NX bit (bit 0 of fflags)
     tf.code(f"SET_TEST_NUM {cn_nx}")
     tf.code("csrr t0, fflags")
-    tf.code("andi t0, t0, 1")     # NX = bit 0
+    tf.code("andi t0, t0, 1")  # NX = bit 0
     tf.code("FAIL_IF_Z t0")
 
     tf.blank()
@@ -1867,7 +1905,7 @@ def _gen_fflags_set(out: Path) -> str:
     # Check OF bit (bit 2 of fflags)
     tf.code(f"SET_TEST_NUM {cn_of}")
     tf.code("csrr t0, fflags")
-    tf.code("andi t0, t0, 4")     # OF = bit 2
+    tf.code("andi t0, t0, 4")  # OF = bit 2
     tf.code("FAIL_IF_Z t0")
 
     tf.write(fpath)
@@ -1877,6 +1915,7 @@ def _gen_fflags_set(out: Path) -> str:
 # ======================================================================
 # Test 9/11: vxsat sticky behavior
 # ======================================================================
+
 
 def _gen_vxsat_sticky(out: Path) -> str:
     """vxsat is sticky: once set by saturating op, stays 1 until cleared.
@@ -1890,16 +1929,17 @@ def _gen_vxsat_sticky(out: Path) -> str:
     7. Check vxsat == 0.
     """
     fpath = out / "vxsat_sticky.S"
-    tf = TestFile("vsadd.vv / vadd.vv",
-                  "vxsat sticky: set by saturating op, preserved by "
-                  "non-saturating op, cleared only by explicit csrw")
+    tf = TestFile(
+        "vsadd.vv / vadd.vv",
+        "vxsat sticky: set by saturating op, preserved by "
+        "non-saturating op, cleared only by explicit csrw",
+    )
 
     sew = 32
 
     cn_sat_res = tf.next_check("vxsat: saturating result wrong")
     cn_sat_set = tf.next_check("vxsat: not set after saturating add")
-    cn_sticky = tf.next_check(
-        "vxsat: cleared by non-saturating add (not sticky)")
+    cn_sticky = tf.next_check("vxsat: cleared by non-saturating add (not sticky)")
     cn_clear = tf.next_check("vxsat: not cleared after csrw vxsat,0")
 
     tag = "vxsat"
@@ -1924,8 +1964,7 @@ def _gen_vxsat_sticky(out: Path) -> str:
     tf.code(f"SET_TEST_NUM {cn_sat_res}")
     tf.code("la t1, result_buf")
     tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
-    tf.code(f"CHECK_MEM result_buf, {tag}_sat_exp, "
-            f"{NUM_ELEMS * (sew // 8)}")
+    tf.code(f"CHECK_MEM result_buf, {tag}_sat_exp, {NUM_ELEMS * (sew // 8)}")
 
     # Step 3: check vxsat == 1
     tf.code(f"SET_TEST_NUM {cn_sat_set}")
@@ -1956,8 +1995,7 @@ def _gen_vxsat_sticky(out: Path) -> str:
 
     # Data: expected saturated result (all 0x7FFFFFFF)
     tf.data_align(sew)
-    tf.data_label(f"{tag}_sat_exp",
-                  format_data_line([0x7FFF_FFFF] * NUM_ELEMS, sew))
+    tf.data_label(f"{tag}_sat_exp", format_data_line([0x7FFF_FFFF] * NUM_ELEMS, sew))
 
     tf.write(fpath)
     return str(fpath)
@@ -1967,6 +2005,7 @@ def _gen_vxsat_sticky(out: Path) -> str:
 # Test 10/11: Narrowing tail — vnsrl.wi e64→e32, vl=2, tu
 # ======================================================================
 
+
 def _gen_narrowing_tail(out: Path) -> str:
     """Narrowing with tail undisturbed: vnsrl.wi (e64→e32), vl=2, tu.
 
@@ -1975,9 +2014,11 @@ def _gen_narrowing_tail(out: Path) -> str:
     Check: active bytes (8) correct + tail bytes preserved.
     """
     fpath = out / "narrowing_tail.S"
-    tf = TestFile("vnsrl.wi",
-                  "Narrowing tail undisturbed: vnsrl.wi e64→e32 vl=2 — "
-                  "verify active elements and tail preserved")
+    tf = TestFile(
+        "vnsrl.wi",
+        "Narrowing tail undisturbed: vnsrl.wi e64→e32 vl=2 — "
+        "verify active elements and tail preserved",
+    )
 
     src_sew = 64
     dst_sew = 32
@@ -2024,8 +2065,7 @@ def _gen_narrowing_tail(out: Path) -> str:
     tf.code(f"CHECK_MEM {tag}_resbuf, {tag}_exp, {active_bytes}")
 
     # 7. Check tail bytes (vlenb - 8)
-    _emit_tail_check(tf, cn_tail, f"{tag}_resbuf", f"{tag}_bg",
-                     active_bytes)
+    _emit_tail_check(tf, cn_tail, f"{tag}_resbuf", f"{tag}_bg", active_bytes)
 
     # Data
     tf.data_align(src_sew)
@@ -2045,6 +2085,7 @@ def _gen_narrowing_tail(out: Path) -> str:
 # Test 11/11: Widening m2→m4 — vwadd.vv e32/m2 → e64/m4, vl=16
 # ======================================================================
 
+
 def _gen_widening_m2_m4(out: Path) -> str:
     """Widening vwadd.vv at e32/m2 → e64/m4 with vl=16.
 
@@ -2055,9 +2096,10 @@ def _gen_widening_m2_m4(out: Path) -> str:
     fewer boundaries.  Dynamic vl-based byte count handles this.
     """
     fpath = out / "widening_m2_m4.S"
-    tf = TestFile("vwadd.vv",
-                  "Widening m2→m4: vwadd.vv e32/m2 → e64/m4 spanning "
-                  "4 registers on VLEN=256")
+    tf = TestFile(
+        "vwadd.vv",
+        "Widening m2→m4: vwadd.vv e32/m2 → e64/m4 spanning 4 registers on VLEN=256",
+    )
 
     src_sew = 32
     dst_sew = 64
@@ -2068,8 +2110,9 @@ def _gen_widening_m2_m4(out: Path) -> str:
     vs1 = [i * 5 + 2 for i in range(requested_vl)]
     # Expected: sext32→64(vs2[i]) + sext32→64(vs1[i])
     # All values are small positive, so sext is identity
-    expected_e64 = [(S(a, src_sew) + S(b, src_sew)) & M(dst_sew)
-                    for a, b in zip(vs2, vs1)]
+    expected_e64 = [
+        (S(a, src_sew) + S(b, src_sew)) & M(dst_sew) for a, b in zip(vs2, vs1)
+    ]
 
     cn_res = tf.next_check("widening m2→m4: wrong result")
     cn_csr = tf.next_check("widening m2→m4: CSR side-effect")
@@ -2107,7 +2150,7 @@ def _gen_widening_m2_m4(out: Path) -> str:
     tf.code(f"SET_TEST_NUM {cn_res}")
     tf.code(f"la a1, {tag}_resbuf")
     tf.code(f"la a2, {tag}_exp")
-    tf.code("slli a3, s6, 3")        # nbytes = vl * 8
+    tf.code("slli a3, s6, 3")  # nbytes = vl * 8
     tf.code("jal ra, _mem_compare")
     tf.code("FAIL_IF_NZ a0")
 
@@ -2127,6 +2170,543 @@ def _gen_widening_m2_m4(out: Path) -> str:
     tf.data_label(f"{tag}_exp", format_data_line(expected_e64, dst_sew))
     tf.data(".align 4")
     tf.data_label(f"{tag}_resbuf", "    .space 256")
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_vstart_nonzero(out: Path) -> str:
+    """Test vstart CSR write/read and behavior of vector insns with vstart>0.
+
+    The RVV 1.0 spec (§3.7) says:
+      "Implementations are permitted to raise illegal instruction
+       exceptions when attempting to execute a vector instruction with
+       a value of vstart that the implementation can never produce."
+
+    So both outcomes are legal:
+      - vadd.vv traps (SIGILL): implementation never interrupts
+        mid-instruction, so nonzero vstart is unsupported.
+      - vadd.vv works: elements before vstart are skipped.
+
+    This test verifies:
+      1. csrw vstart, 2 succeeds (no trap).
+      2. csrr vstart reads back 2.
+      3. Fork a child that executes vadd.vv with vstart=2.
+         If child is killed by SIGILL → the implementation doesn't
+         support nonzero vstart (legal per spec).
+         If child exits normally → check that vadd.vv skipped
+         elements 0-1 and computed elements 2-3.
+    """
+    fpath = out / "vstart_nonzero.S"
+    tf = TestFile(
+        "vstart CSR + vadd.vv",
+        "Verifies csrw/csrr vstart works and tests vadd.vv behavior "
+        "with nonzero vstart (both SIGILL and skip-elements are valid "
+        "per RVV 1.0 §3.7)")
+
+    sew = 32
+    vd_pre = [0xAAAA_AAAA, 0xBBBB_BBBB, 0xCCCC_CCCC, 0xDDDD_DDDD]
+    vs2 = [100, 200, 300, 400]
+    vs1 = [10, 20, 30, 40]
+    # If vstart=2: elements 0-1 preserved from vd_pre, 2-3 computed
+    expected_skip = [
+        vd_pre[0],
+        vd_pre[1],
+        (vs2[2] + vs1[2]) & M(sew),
+        (vs2[3] + vs1[3]) & M(sew),
+    ]
+    nbytes = NUM_ELEMS * (sew // 8)
+
+    cn_csrw = tf.next_check("csrw vstart, 2 caused trap (unexpected)")
+    cn_csrr = tf.next_check("csrr vstart did not read back 2")
+    cn_clone = tf.next_check("clone() failed")
+    cn_behavior = tf.next_check(
+        "vadd.vv with vstart=2: child exited 0 but result wrong "
+        "(neither SIGILL nor correct skip-elements behavior)")
+    tag = "vstart"
+
+    tf.blank()
+    tf.comment("vstart nonzero test")
+    tf.comment("RVV 1.0 §3.7: implementations may trap on nonzero vstart")
+
+    # 1. Set valid vtype, load registers
+    tf.code(f"li t0, {NUM_ELEMS}")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+    tf.code(f"la t1, {tag}_vd")
+    tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+    tf.code(f"la t1, {tag}_s2")
+    tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+    tf.code(f"la t1, {tag}_s1")
+    tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
+
+    # 2. Write vstart=2 and read it back
+    tf.code(f"SET_TEST_NUM {cn_csrw}")
+    tf.code("li t0, 2")
+    tf.code("csrw vstart, t0")
+    tf.comment("If we reach here, csrw vstart succeeded")
+
+    tf.code(f"SET_TEST_NUM {cn_csrr}")
+    tf.code("csrr t1, vstart")
+    tf.code("li t2, 2")
+    tf.code("FAIL_IF_NE t1, t2")
+
+    # 3. Reset vstart to 0 before fork (vstart=2 would affect child setup)
+    tf.code("csrw vstart, zero")
+
+    # 4. Fork child to test vadd.vv with vstart=2
+    tf.code(f"SET_TEST_NUM {cn_clone}")
+    tf.code("SYS_CLONE")
+    tf.code(f"bltz a0, {tag}_clone_fail")
+    tf.code(f"beqz a0, {tag}_child")
+    tf.code(f"j {tag}_parent")
+    tf.raw(f"{tag}_clone_fail:")
+    tf.code("FAIL_TEST")
+    tf.blank()
+
+    # --- Child ---
+    tf.raw(f"{tag}_child:")
+    tf.comment("Child: reload registers (not preserved across fork),")
+    tf.comment("set vstart=2, execute vadd.vv")
+    tf.code(f"li t0, {NUM_ELEMS}")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+    tf.code(f"la t1, {tag}_vd")
+    tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+    tf.code(f"la t1, {tag}_s2")
+    tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+    tf.code(f"la t1, {tag}_s1")
+    tf.code(f"vle{sew}.v {VREG_SRC1}, (t1)")
+    tf.code("li t0, 2")
+    tf.code("csrw vstart, t0")
+    tf.comment("This vadd.vv may SIGILL (legal) or skip elements 0-1 (also legal)")
+    tf.code(f"vadd.vv {VREG_DST}, {VREG_SRC2}, {VREG_SRC1}")
+    tf.blank()
+    tf.comment("If we reach here, vadd.vv succeeded — store result and exit 0")
+    tf.code(f"la t1, {tag}_result")
+    tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+    tf.code("SYS_EXIT 0")
+    tf.blank()
+
+    # --- Parent ---
+    tf.raw(f"{tag}_parent:")
+    tf.code("mv s6, a0")
+    tf.code(f"la s7, {tag}_wstatus")
+    tf.code("SYS_WAIT4 s6, s7")
+    tf.blank()
+    tf.comment("Check child outcome")
+    tf.code(f"la t0, {tag}_wstatus")
+    tf.code("lw t0, 0(t0)")
+    tf.blank()
+    tf.comment("WIFEXITED: bits [15:8] = exit status, bits [6:0] = 0")
+    tf.comment("WIFSIGNALED: bits [6:0] = signal number")
+    tf.code("andi t1, t0, 0x7f")  # WTERMSIG
+    tf.code(f"beqz t1, {tag}_exited")
+    tf.blank()
+    tf.comment("Child was signaled — check it was SIGILL (4)")
+    tf.code("li t2, 4")
+    tf.code(f"beq t1, t2, {tag}_sigill_ok")
+    tf.comment("Killed by unexpected signal — fail")
+    tf.code(f"SET_TEST_NUM {cn_behavior}")
+    tf.code("FAIL_TEST")
+    tf.blank()
+
+    tf.raw(f"{tag}_sigill_ok:")
+    tf.comment("SIGILL from vadd.vv with vstart=2 — legal per spec, pass")
+    # falls through to PASS_TEST
+
+    # Need to jump over the exited-normally check
+    tf.code(f"j {tag}_done")
+    tf.blank()
+
+    tf.raw(f"{tag}_exited:")
+    tf.comment("Child exited normally — vadd.vv ran, verify result")
+    tf.code(f"SET_TEST_NUM {cn_behavior}")
+    tf.code(f"CHECK_MEM {tag}_result, {tag}_exp, {nbytes}")
+    tf.blank()
+
+    tf.raw(f"{tag}_done:")
+
+    # Data
+    tf.data_align(sew)
+    tf.data_label(f"{tag}_vd", format_data_line(vd_pre, sew))
+    tf.data_label(f"{tag}_s2", format_data_line(vs2, sew))
+    tf.data_label(f"{tag}_s1", format_data_line(vs1, sew))
+    tf.data_label(f"{tag}_exp", format_data_line(expected_skip, sew))
+    tf.data(".align 3")
+    tf.data_label(f"{tag}_wstatus", "    .word 0")
+    tf.data_label(f"{tag}_result", f"    .space {nbytes}")
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+# ==================================================================
+# Helper: emit fork-based SIGILL check for a raw instruction encoding
+# ==================================================================
+
+
+def _emit_sigill_fork_check(
+    tf: TestFile,
+    encoding: int,
+    label_prefix: str,
+    description: str,
+    cn_clone: int,
+    cn_sigill: int,
+    *,
+    child_setup: list[str] | None = None,
+) -> None:
+    """Emit a fork-based SIGILL test for a raw 32-bit instruction encoding.
+
+    Forks a child process via clone(), child executes the raw instruction
+    (which must SIGILL), parent waits via wait4() and verifies
+    WTERMSIG == SIGILL (4).
+
+    child_setup: optional extra assembly lines for the child before the
+                 faulting instruction (e.g. setting up vtype).
+    """
+    tag = label_prefix
+    tf.blank()
+    tf.comment(f"SIGILL check: {description}")
+    tf.comment(f"Encoding 0x{encoding:08X} — must trap as illegal instruction")
+
+    tf.code(f"SET_TEST_NUM {cn_clone}")
+    tf.code("SYS_CLONE")
+    tf.code(f"bltz a0, {tag}_clone_fail")
+    tf.code(f"beqz a0, {tag}_child")
+    tf.code(f"j {tag}_parent")
+    tf.raw(f"{tag}_clone_fail:")
+    tf.code("FAIL_TEST")
+    tf.blank()
+
+    # --- Child ---
+    tf.raw(f"{tag}_child:")
+    if child_setup:
+        for line in child_setup:
+            tf.code(line)
+    tf.comment(f"Execute 0x{encoding:08X} — should SIGILL")
+    tf.code(f".4byte 0x{encoding:08X}")
+    tf.comment("If we reach here, instruction did NOT trap — exit child 0")
+    tf.code("SYS_EXIT 0")
+    tf.blank()
+
+    # --- Parent ---
+    tf.raw(f"{tag}_parent:")
+    tf.code("mv s6, a0")  # save child PID
+    tf.code(f"la s7, {tag}_wstatus")
+    tf.code("SYS_WAIT4 s6, s7")
+    tf.blank()
+    tf.code(f"SET_TEST_NUM {cn_sigill}")
+    tf.code(f"la t0, {tag}_wstatus")
+    tf.code("lw t0, 0(t0)")
+    tf.code("andi t0, t0, 0x7f")  # WTERMSIG
+    tf.code("li t1, 4")  # SIGILL
+    tf.code("FAIL_IF_NE t0, t1")
+
+
+def _gen_ghostwrite(out: Path) -> str:
+    """GhostWrite (CVE-2024-44067) vulnerability check.
+
+    Verifies that a correct RVV 1.0 implementation rejects the
+    illegally-encoded vector instructions that constitute the GhostWrite
+    attack on T-Head XuanTie C910/C920 CPUs.
+
+    GhostWrite exploits instructions with mew=1 (bit 28), which is
+    RESERVED in standard RVV 1.0.  On the vulnerable T-Head CPUs, these
+    instructions (vse128.v / vle128.v) bypass virtual memory and operate
+    on physical addresses directly.
+
+    On a correct implementation, mew=1 must trap as an illegal instruction.
+
+    Encodings tested:
+      0x10028027 — vse128.v v0, 0(t0)  (exact GhostWrite PoC encoding)
+      0x12028407 — vle128.v v8, 0(t0)  (load counterpart, mew=1)
+    """
+    fpath = out / "ghostwrite.S"
+    tf = TestFile(
+        "GhostWrite CVE-2024-44067 check",
+        "Verifies mew=1 (reserved) vector store/load instructions trap as "
+        "illegal instruction, preventing the GhostWrite physical-memory "
+        "write vulnerability (CVE-2024-44067, T-Head C910/C920)",
+    )
+
+    # The exact GhostWrite PoC encoding: vse128.v v0, 0(t0)
+    # [28]=mew=1, [27:26]=mop=00, [25]=vm=0, [24:20]=00000,
+    # [19:15]=t0(x5), [14:12]=000, [11:7]=v0, [6:0]=0100111
+    GHOSTWRITE_STORE = 0x10028027
+
+    # Load counterpart: vle128.v v8, 0(t0)
+    # Same but LOAD-FP opcode, vd=v8, vm=1
+    GHOSTWRITE_LOAD = 0x12028407
+
+    cn_store_clone = tf.next_check("clone failed for vse128.v check")
+    cn_store_sigill = tf.next_check(
+        "vse128.v (GhostWrite, 0x10028027) did NOT trap — VULNERABLE to CVE-2024-44067!"
+    )
+    cn_load_clone = tf.next_check("clone failed for vle128.v check")
+    cn_load_sigill = tf.next_check(
+        "vle128.v (0x12028407, mew=1 load) did NOT trap — reserved encoding accepted"
+    )
+
+    # Child needs a valid vtype set before executing the faulting instruction
+    # (because the encoding is in LOAD-FP/STORE-FP opcode space, the CPU
+    # needs to know it's a vector instruction — mew=1 makes it illegal)
+    child_vtype_setup = [
+        "li t0, 4",
+        "vsetvli t0, t0, e8, m1, ta, ma",
+        "la t0, gw_scratch",  # point t0 at scratch buffer
+    ]
+
+    tf.blank()
+    tf.comment("GhostWrite vulnerability check (CVE-2024-44067)")
+    tf.comment("T-Head XuanTie C910/C920: vse128.v writes physical memory")
+    tf.comment("Standard RVV 1.0: mew=1 (bit 28) is reserved → must SIGILL")
+
+    # Test 1: vse128.v (the actual GhostWrite store)
+    _emit_sigill_fork_check(
+        tf,
+        GHOSTWRITE_STORE,
+        "gw_store",
+        "vse128.v v0, 0(t0) — GhostWrite store (CVE-2024-44067)",
+        cn_store_clone,
+        cn_store_sigill,
+        child_setup=child_vtype_setup,
+    )
+
+    # Test 2: vle128.v (the load counterpart)
+    _emit_sigill_fork_check(
+        tf,
+        GHOSTWRITE_LOAD,
+        "gw_load",
+        "vle128.v v8, 0(t0) — mew=1 load",
+        cn_load_clone,
+        cn_load_sigill,
+        child_setup=child_vtype_setup,
+    )
+
+    # PASS_TEST is auto-appended by TestFile.write()
+
+    # Data
+    tf.data(".align 4")
+    tf.data_label("gw_scratch", "    .space 64")
+    tf.data(".align 3")
+    tf.data_label("gw_store_wstatus", "    .word 0")
+    tf.data_label("gw_load_wstatus", "    .word 0")
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_reserved_encoding(out: Path) -> str:
+    """Test that structurally reserved RVV load/store encodings trap as SIGILL.
+
+    Tests encoding fields that are reserved in the RVV 1.0 vector
+    load/store format itself (not funct6 slots in OP-V, which are
+    gradually being claimed by newer extensions like Zvbc, Zvbb, etc.).
+
+    1. Strided store with mew=1 (vsse128.v encoding)
+       Similar to GhostWrite but strided addressing mode.
+
+    2. Reserved lumop=00001 in unit-stride vector load
+       Only lumop=00000 (unit-stride), 01000 (fault-first),
+       01011 (mask load), 10000 (whole-register) are valid.
+
+    3. Indexed load with mew=1
+       vluxei128.v — mew=1 with indexed (unordered) addressing.
+
+    4. Reserved sumop=00001 in unit-stride vector store
+       Only sumop=00000 (unit-stride), 01011 (mask store),
+       10000 (whole-register) are valid.
+    """
+    fpath = out / "reserved_encoding.S"
+    tf = TestFile(
+        "Reserved RVV encoding checks",
+        "Verifies that structurally reserved RVV 1.0 load/store encodings "
+        "trap as illegal instruction (SIGILL). Tests mew=1 (strided store "
+        "and indexed load) and reserved lumop/sumop values.",
+    )
+
+    # Strided store with mew=1: vsse128.v v0, 0(t0), t1
+    # mop=10 (strided), mew=1, width=000, rs2=t1(x6), rs1=t0(x5)
+    STRIDED_MEW1 = (
+        0x27
+        | (0 << 7)
+        | (0b000 << 12)
+        | (5 << 15)
+        | (6 << 20)
+        | (1 << 25)
+        | (0b10 << 26)
+        | (1 << 28)
+    )
+
+    # Reserved lumop=00001 in unit-stride load
+    # vle8.v encoding but with lumop=00001 instead of 00000
+    RESERVED_LUMOP = 0x07 | (8 << 7) | (0b000 << 12) | (5 << 15) | (1 << 20) | (1 << 25)
+
+    # Indexed load with mew=1: vluxei128.v v8, (t0), v16
+    # mop=01 (indexed-unordered), mew=1, width=000, vs2=v16, rs1=t0
+    INDEXED_MEW1 = (
+        0x07
+        | (8 << 7)
+        | (0b000 << 12)
+        | (5 << 15)
+        | (16 << 20)
+        | (1 << 25)
+        | (0b01 << 26)
+        | (1 << 28)
+    )
+
+    # Reserved sumop=00001 in unit-stride store
+    # vse8.v encoding but with sumop=00001 instead of 00000
+    RESERVED_SUMOP = 0x27 | (8 << 7) | (0b000 << 12) | (5 << 15) | (1 << 20) | (1 << 25)
+
+    cn1_clone = tf.next_check("clone failed for mew=1 strided store")
+    cn1_sigill = tf.next_check(
+        "mew=1 strided store (0x{:08X}) did NOT trap".format(STRIDED_MEW1)
+    )
+    cn2_clone = tf.next_check("clone failed for reserved lumop")
+    cn2_sigill = tf.next_check(
+        "reserved lumop=00001 (0x{:08X}) did NOT trap".format(RESERVED_LUMOP)
+    )
+    cn3_clone = tf.next_check("clone failed for mew=1 indexed load")
+    cn3_sigill = tf.next_check(
+        "mew=1 indexed load (0x{:08X}) did NOT trap".format(INDEXED_MEW1)
+    )
+    cn4_clone = tf.next_check("clone failed for reserved sumop")
+    cn4_sigill = tf.next_check(
+        "reserved sumop=00001 (0x{:08X}) did NOT trap".format(RESERVED_SUMOP)
+    )
+
+    child_vtype_setup = [
+        "li t0, 4",
+        "vsetvli t0, t0, e8, m1, ta, ma",
+        "la t0, re_scratch",
+        "li t1, 4",
+    ]
+
+    tf.blank()
+    tf.comment("Reserved RVV 1.0 load/store encoding checks")
+    tf.comment("These test structurally reserved fields (mew, lumop, sumop),")
+    tf.comment("NOT OP-V funct6 slots (which are claimed by newer extensions).")
+
+    _emit_sigill_fork_check(
+        tf,
+        STRIDED_MEW1,
+        "re_smew",
+        "mew=1 strided store",
+        cn1_clone,
+        cn1_sigill,
+        child_setup=child_vtype_setup,
+    )
+
+    _emit_sigill_fork_check(
+        tf,
+        RESERVED_LUMOP,
+        "re_lumop",
+        "unit-stride load with reserved lumop=00001",
+        cn2_clone,
+        cn2_sigill,
+        child_setup=child_vtype_setup,
+    )
+
+    _emit_sigill_fork_check(
+        tf,
+        INDEXED_MEW1,
+        "re_imew",
+        "mew=1 indexed load",
+        cn3_clone,
+        cn3_sigill,
+        child_setup=child_vtype_setup,
+    )
+
+    _emit_sigill_fork_check(
+        tf,
+        RESERVED_SUMOP,
+        "re_sumop",
+        "unit-stride store with reserved sumop=00001",
+        cn4_clone,
+        cn4_sigill,
+        child_setup=child_vtype_setup,
+    )
+
+    # PASS_TEST is auto-appended by TestFile.write()
+
+    # Data
+    tf.data(".align 4")
+    tf.data_label("re_scratch", "    .space 64")
+    tf.data(".align 3")
+    tf.data_label("re_smew_wstatus", "    .word 0")
+    tf.data_label("re_lumop_wstatus", "    .word 0")
+    tf.data_label("re_imew_wstatus", "    .word 0")
+    tf.data_label("re_sumop_wstatus", "    .word 0")
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_rvv_detect(out: Path) -> str:
+    """Detect standard RVV 1.0 vs XTheadVector from userspace.
+
+    XTheadVector (T-Head C906V/C920/R920) overlaps with the V extension
+    encoding space but lacks several RVV 1.0 features.  Since the M-mode
+    CSRs needed for official detection (mvendorid, mimpid) are not
+    accessible from userspace, we detect via instruction availability:
+
+    1. vsetivli (exists in RVV 1.0, absent in XTheadVector)
+    2. vlenb CSR read (exists in both, but encoding differs in old
+       XTheadVector toolchains — kept as a sanity check)
+    3. vmv1r.v (whole register move, absent in XTheadVector)
+
+    All three must succeed for standard RVV 1.0.  If any traps, the
+    implementation is XTheadVector (or broken).
+    """
+    fpath = out / "rvv_detect.S"
+    tf = TestFile(
+        "RVV 1.0 detection",
+        "Verifies the implementation is standard RVV 1.0 (not "
+        "XTheadVector) by testing instructions that exist only in "
+        "RVV 1.0: vsetivli, vlenb CSR, vmv1r.v")
+
+    cn_vsetivli = tf.next_check("vsetivli not supported (XTheadVector?)")
+    cn_vlenb = tf.next_check("csrr vlenb failed")
+    cn_vlenb_val = tf.next_check("vlenb is zero (invalid)")
+    cn_vmv1r = tf.next_check("vmv1r.v not supported (XTheadVector?)")
+    cn_vmv1r_data = tf.next_check("vmv1r.v data integrity failed")
+
+    sew = 32
+    src_data = [0x1111_1111, 0x2222_2222, 0x3333_3333, 0x4444_4444]
+    nbytes = NUM_ELEMS * (sew // 8)
+    tag = "rvvdet"
+
+    tf.blank()
+    tf.comment("RVV 1.0 detection: test instructions absent in XTheadVector")
+
+    # Test 1: vsetivli (immediate AVL form, RVV 1.0 only)
+    tf.code(f"SET_TEST_NUM {cn_vsetivli}")
+    tf.code(f"vsetivli t0, {NUM_ELEMS}, e{sew}, m1, ta, ma")
+    tf.comment("If we reach here, vsetivli works → not XTheadVector")
+
+    # Test 2: csrr vlenb
+    tf.code(f"SET_TEST_NUM {cn_vlenb}")
+    tf.code("csrr t0, vlenb")
+    tf.code(f"SET_TEST_NUM {cn_vlenb_val}")
+    tf.code("FAIL_IF_Z t0")
+
+    # Test 3: vmv1r.v (whole register move)
+    tf.code(f"li t0, {NUM_ELEMS}")
+    tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+    tf.code(f"la t1, {tag}_src")
+    tf.code(f"vle{sew}.v {VREG_SRC2}, (t1)")
+    tf.code(f"SET_TEST_NUM {cn_vmv1r}")
+    tf.code(f"vmv1r.v {VREG_DST}, {VREG_SRC2}")
+
+    # Verify data integrity
+    tf.code(f"SET_TEST_NUM {cn_vmv1r_data}")
+    tf.code("la t1, result_buf")
+    tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_src, {nbytes}")
+
+    # Data
+    tf.data_align(sew)
+    tf.data_label(f"{tag}_src", format_data_line(src_data, sew))
 
     tf.write(fpath)
     return str(fpath)
