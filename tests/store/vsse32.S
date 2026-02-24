@@ -4,6 +4,7 @@
  * Exit code 0 = PASS
  * Exit code N = check N failed:
  *     1 = vsse32.v stride=8: result
+ *     2 = vsse32.v stride=8 masked: result
  */
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -23,12 +24,41 @@
     CHECK_MEM witness_buf, tc1_data, 16
     CHECK_CSRS_UNCHANGED
 
+    /* Masked strided store: mask=0b0101 */
+    li t0, 4
+    vsetvli t0, t0, e32, m1, tu, mu
+    la t1, tc2_src
+    vle32.v v8, (t1)
+    la t1, tc2_mask
+    vlm.v v0, (t1)
+    vmv.v.i v16, 0
+    la t1, result_buf
+    li t2, 8
+    vsse32.v v16, (t1), t2
+    SAVE_CSRS
+    la t1, result_buf
+    vsse32.v v8, (t1), t2, v0.t
+    SET_TEST_NUM 2
+    vlse32.v v16, (t1), t2
+    la t1, witness_buf
+    vse32.v v16, (t1)
+    CHECK_MEM witness_buf, tc2_exp, 16
+    CHECK_CSRS_UNCHANGED
+
     PASS_TEST
 
 .data
 .align 2
 tc1_data:
     .word 0x0000000a, 0x00000014, 0x0000001e, 0x00000028
+.align 1
+tc2_mask:
+    .byte 5
+.align 2
+tc2_src:
+    .word 0x00000011, 0x00000022, 0x00000033, 0x00000044
+tc2_exp:
+    .word 0x00000011, 0x00000000, 0x00000033, 0x00000000
 
 .align 4
 result_buf:  .space 256

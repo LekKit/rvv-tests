@@ -224,6 +224,50 @@ def generate(base_dir: Path) -> list[str]:
         tf.code("CHECK_CSRS_UNCHANGED")
         tf.data_align(sew)
         tf.data_label(f"{tag}_data", format_data_line(src_vals, sew))
+
+        # Masked strided store: mask=0b0101, only elements 0,2 stored
+        mask_bits = 0b0101
+        store_data_m = [0x11, 0x22, 0x33, 0x44]
+        store_data_m = [v & M(sew) for v in store_data_m]
+        cn_m = tf.next_check(f"vsse{sew}.v stride={stride} masked: result")
+        tag_m = f"tc{cn_m}"
+        tf.blank()
+        tf.comment(f"Masked strided store: mask=0b{mask_bits:04b}")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag_m}_src")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"la t1, {tag_m}_mask")
+        tf.code("vlm.v v0, (t1)")
+        # Clear result_buf (zero fill via vmv.v.i + strided store)
+        tf.code(f"vmv.v.i {VREG_SRC2}, 0")
+        tf.code("la t1, result_buf")
+        tf.code(f"li t2, {stride}")
+        tf.code(f"vsse{sew}.v {VREG_SRC2}, (t1), t2")
+        # Now masked strided store
+        tf.code("SAVE_CSRS")
+        tf.code("la t1, result_buf")
+        tf.code(f"vsse{sew}.v {VREG_DST}, (t1), t2, v0.t")
+        tf.code(f"SET_TEST_NUM {cn_m}")
+        # Verify: load back with stride and check
+        tf.code(f"vlse{sew}.v {VREG_SRC2}, (t1), t2")
+        tf.code("la t1, witness_buf")
+        tf.code(f"vse{sew}.v {VREG_SRC2}, (t1)")
+        # Expected: elements 0,2 = store_data_m, elements 1,3 = 0
+        exp_strided_m = []
+        for i in range(NUM_ELEMS):
+            if mask_bits & (1 << i):
+                exp_strided_m.append(store_data_m[i])
+            else:
+                exp_strided_m.append(0)
+        tf.code(f"CHECK_MEM witness_buf, {tag_m}_exp, {nbytes}")
+        tf.code("CHECK_CSRS_UNCHANGED")
+        tf.data(".align 1")
+        tf.data_label(f"{tag_m}_mask", f"    .byte {mask_bits}")
+        tf.data_align(sew)
+        tf.data_label(f"{tag_m}_src", format_data_line(store_data_m, sew))
+        tf.data_label(f"{tag_m}_exp", format_data_line(exp_strided_m, sew))
+
         tf.write(fpath)
         generated.append(str(fpath))
 
@@ -259,6 +303,41 @@ def generate(base_dir: Path) -> list[str]:
         tf.data_align(sew)
         tf.data_label(f"{tag}_data", format_data_line(full_data, sew))
         tf.data_label(f"{tag}_exp", format_data_line(expected, sew))
+
+        # Masked strided load: mask=0b0101, elements 0,2 loaded, 1,3 preserved
+        mask_bits = 0b0101
+        vd_init_m = [0xDD & M(sew)] * NUM_ELEMS
+        exp_masked_sl = []
+        for i in range(NUM_ELEMS):
+            if mask_bits & (1 << i):
+                exp_masked_sl.append(full_data[i * 2])
+            else:
+                exp_masked_sl.append(vd_init_m[i])
+        cn_m = tf.next_check(f"vlse{sew}.v stride={stride} masked: result")
+        tag_m = f"tc{cn_m}"
+        tf.blank()
+        tf.comment(f"Masked strided load: mask=0b{mask_bits:04b}")
+        tf.code(f"li t0, {NUM_ELEMS}")
+        tf.code(f"vsetvli t0, t0, e{sew}, m1, tu, mu")
+        tf.code(f"la t1, {tag_m}_vd")
+        tf.code(f"vle{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"la t1, {tag_m}_mask")
+        tf.code("vlm.v v0, (t1)")
+        tf.code("SAVE_CSRS")
+        tf.code(f"la t1, {tag_m}_data")
+        tf.code(f"li t2, {stride}")
+        tf.code(f"vlse{sew}.v {VREG_DST}, (t1), t2, v0.t")
+        tf.code(f"SET_TEST_NUM {cn_m}")
+        tf.code("la t1, result_buf")
+        tf.code(f"vse{sew}.v {VREG_DST}, (t1)")
+        tf.code(f"CHECK_MEM result_buf, {tag_m}_exp, {nbytes}")
+        tf.code("CHECK_CSRS_UNCHANGED")
+        tf.data(".align 1")
+        tf.data_label(f"{tag_m}_mask", f"    .byte {mask_bits}")
+        tf.data_align(sew)
+        tf.data_label(f"{tag_m}_vd", format_data_line(vd_init_m, sew))
+        tf.data_label(f"{tag_m}_data", format_data_line(full_data, sew))
+        tf.data_label(f"{tag_m}_exp", format_data_line(exp_masked_sl, sew))
 
         tf.write(fpath)
         generated.append(str(fpath))
