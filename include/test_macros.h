@@ -13,6 +13,11 @@
  * RISC-V Linux syscall convention:
  *   a7 = syscall number, a0-a5 = arguments, a0 = return value
  *   Clobbers: a0-a5, a7 (depending on macro)
+ *
+ * Syscall numbers (riscv64):
+ *   57  = close      215 = munmap    222 = mmap
+ *   46  = ftruncate  220 = clone     260 = wait4
+ *   93  = exit       279 = memfd_create
  * ============================================================ */
 
 /* __NR_exit: terminate process.  Does not return.
@@ -74,6 +79,51 @@
     mv a2, zero
     mv a3, zero
     li a7, 260
+    ecall
+.endm
+
+/* __NR_memfd_create: create anonymous file.  Result in a0 (fd).
+ * name_reg: register holding pointer to name string
+ * Clobbers: a0, a1, a7
+ */
+.macro SYS_MEMFD_CREATE name_reg
+    mv a0, \name_reg
+    li a1, 0
+    li a7, 279
+    ecall
+.endm
+
+/* __NR_ftruncate: set file size.
+ * Clobbers: a0, a1, a7
+ */
+.macro SYS_FTRUNCATE fd_reg, len
+    mv a0, \fd_reg
+    li a1, \len
+    li a7, 46
+    ecall
+.endm
+
+/* __NR_close: close file descriptor.
+ * Clobbers: a0, a7
+ */
+.macro SYS_CLOSE fd_reg
+    mv a0, \fd_reg
+    li a7, 57
+    ecall
+.endm
+
+/* __NR_mmap with fd: map file pages.  Result in a0.
+ * fd_reg: register holding file descriptor
+ * Clobbers: a0-a5, a7
+ */
+.macro SYS_MMAP_FD addr, len, prot, flags, fd_reg, offset
+    li a0, \addr
+    li a1, \len
+    li a2, \prot
+    li a3, \flags
+    mv a4, \fd_reg
+    li a5, \offset
+    li a7, 222
     ecall
 .endm
 

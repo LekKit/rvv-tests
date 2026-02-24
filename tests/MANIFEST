@@ -7,12 +7,17 @@ tests/edge_cases/lmul4_fract.S 3
 tests/edge_cases/lmul_gt1_fp.S 3
 tests/edge_cases/lmul_gt1_int.S 3
 tests/edge_cases/mask_agnostic.S 2
+tests/edge_cases/memory_alias.S 11
+tests/edge_cases/mixed_width_fwd.S 3
 tests/edge_cases/narrowing_tail.S 2
+tests/edge_cases/page_boundary.S 4
 tests/edge_cases/reserved_encoding.S 8
 tests/edge_cases/rvv_detect.S 5
 tests/edge_cases/scatter_ordered.S 2
+tests/edge_cases/self_ref_store_load.S 3
 tests/edge_cases/small_vl.S 12
 tests/edge_cases/small_vl_extra.S 4
+tests/edge_cases/store_forwarding.S 3
 tests/edge_cases/stride_negative.S 3
 tests/edge_cases/stride_zero.S 3
 tests/edge_cases/tail_agnostic.S 1

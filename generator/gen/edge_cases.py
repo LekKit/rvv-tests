@@ -293,6 +293,13 @@ def generate(base_dir: Path) -> list[str]:
     generated.append(_gen_tail_widening_narrowing(out))
     generated.append(_gen_small_vl_extra(out))
 
+    # Phase 10: memory coherence and store buffer tests
+    generated.append(_gen_memory_alias(out))
+    generated.append(_gen_store_forwarding(out))
+    generated.append(_gen_mixed_width_forwarding(out))
+    generated.append(_gen_self_referential(out))
+    generated.append(_gen_page_boundary(out))
+
     return generated
 
 
@@ -3601,14 +3608,19 @@ def _gen_tail_widening_narrowing(out: Path) -> str:
     tf = TestFile(
         "Tail undisturbed widening/narrowing",
         "Verifies tail preservation (tu) for vwadd.vv (widening) and "
-        "vnsrl.wi (narrowing) with vl=2")
+        "vnsrl.wi (narrowing) with vl=2",
+    )
 
     # Test 1: vwadd.vv e32→e64, vl=2
     # Pre-fill v8 (e64 dest, m2 → v8+v9) with pattern at full vl,
     # then execute vwadd at vl=2, dump via vs2r.v, check first 4 e64 elements
     vl = 2
-    prefill_64 = [0xAAAA_AAAA_AAAA_AAAA, 0xBBBB_BBBB_BBBB_BBBB,
-                  0xCCCC_CCCC_CCCC_CCCC, 0xDDDD_DDDD_DDDD_DDDD]
+    prefill_64 = [
+        0xAAAA_AAAA_AAAA_AAAA,
+        0xBBBB_BBBB_BBBB_BBBB,
+        0xCCCC_CCCC_CCCC_CCCC,
+        0xDDDD_DDDD_DDDD_DDDD,
+    ]
     s2_32 = [100, 200, 300, 400]
     s1_32 = [10, 20, 30, 40]
     # Widening add: result[i] = sext(s2[i]) + sext(s1[i]) at e64
@@ -3651,8 +3663,12 @@ def _gen_tail_widening_narrowing(out: Path) -> str:
 
     # Test 2: vnsrl.wi e64→e32, vl=2
     prefill_32 = [0xAAAA_AAAA, 0xBBBB_BBBB, 0xCCCC_CCCC, 0xDDDD_DDDD]
-    src_64 = [0x0000_0001_0000_0002, 0x0000_0003_0000_0004,
-              0x0000_0005_0000_0006, 0x0000_0007_0000_0008]
+    src_64 = [
+        0x0000_0001_0000_0002,
+        0x0000_0003_0000_0004,
+        0x0000_0005_0000_0006,
+        0x0000_0007_0000_0008,
+    ]
     # vnsrl.wi vd, vs2, 0 → lower 32 bits of each e64
     exp_n = [v & M(32) for v in src_64[:vl]]
     exp_n_full = exp_n + list(prefill_32[vl:])
@@ -3700,7 +3716,8 @@ def _gen_small_vl_extra(out: Path) -> str:
     tf = TestFile(
         "Small vl extra families",
         "Tests vl=1/2 for vwadd.vv (widening), vnsrl.wi (narrowing), "
-        "vmseq.vv (compare)")
+        "vmseq.vv (compare)",
+    )
 
     # Widening: vwadd.vv e32→e64, vl=1 and vl=2
     for vl_val in [1, 2]:
@@ -3773,6 +3790,627 @@ def _gen_small_vl_extra(out: Path) -> str:
         tf.data_align(32)
         tf.data_label(f"{tag}_s2", format_data_line(s2, 32))
         tf.data_label(f"{tag}_s1", format_data_line(s1, 32))
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_memory_alias(out: Path) -> str:
+    """Test vector load/store coherence with aliased virtual memory.
+
+    Creates two virtual addresses backed by the same physical page
+    (via memfd_create + two mmap calls).  Verifies:
+
+    1. Vector store through VA1, vector load from VA2 → sees same data.
+    2. Scalar store through VA1, vector load from VA2 → coherent.
+    3. Vector store through VA1, scalar load from VA2 → coherent.
+
+    This catches cache coherence and store buffer forwarding bugs
+    where vector hardware might bypass coherence protocols.
+    """
+    fpath = out / "memory_alias.S"
+    tf = TestFile(
+        "Memory aliasing coherence",
+        "Tests vector load/store coherence when two virtual addresses "
+        "map to the same physical page (memfd + double mmap). Catches "
+        "store buffer and cache coherence bugs.",
+    )
+
+    sew = 32
+    nbytes = NUM_ELEMS * (sew // 8)
+    tag = "malias"
+
+    cn_memfd = tf.next_check("memfd_create failed")
+    cn_ftrunc = tf.next_check("ftruncate failed")
+    cn_mmap1 = tf.next_check("mmap VA1 failed")
+    cn_mmap2 = tf.next_check("mmap VA2 failed")
+    cn_vse_vle = tf.next_check("vse through VA1 → vle from VA2: data mismatch")
+    cn_sw_vle = tf.next_check("scalar sw through VA1 → vle from VA2: data mismatch")
+    cn_vse_lw = tf.next_check("vse through VA1 → scalar lw from VA2: data mismatch")
+
+    tf.blank()
+    tf.comment("Memory aliasing: two VAs → same physical page")
+    tf.comment("Setup: memfd_create + ftruncate + mmap × 2")
+
+    # Create memfd
+    tf.code(f"SET_TEST_NUM {cn_memfd}")
+    tf.code(f"la t0, {tag}_name")
+    tf.code("SYS_MEMFD_CREATE t0")
+    tf.code(f"bltz a0, {tag}_fail")
+    tf.code("mv s6, a0")  # s6 = fd
+
+    # ftruncate to 4096
+    tf.code(f"SET_TEST_NUM {cn_ftrunc}")
+    tf.code("SYS_FTRUNCATE s6, 4096")
+    tf.code(f"bltz a0, {tag}_fail")
+
+    # mmap VA1 (MAP_SHARED=1, PROT_READ|PROT_WRITE=3)
+    tf.code(f"SET_TEST_NUM {cn_mmap1}")
+    tf.code("SYS_MMAP_FD 0, 4096, 3, 1, s6, 0")
+    tf.code(f"bltz a0, {tag}_fail")
+    tf.code("mv s7, a0")  # s7 = VA1
+
+    # mmap VA2 (same fd, same offset → same physical page)
+    tf.code(f"SET_TEST_NUM {cn_mmap2}")
+    tf.code("SYS_MMAP_FD 0, 4096, 3, 1, s6, 0")
+    tf.code(f"bltz a0, {tag}_fail")
+    tf.code("mv s8, a0")  # s8 = VA2
+
+    # Close fd (mappings persist)
+    tf.code("SYS_CLOSE s6")
+
+    tf.blank()
+    tf.comment("Test 1: vector store through VA1, vector load from VA2")
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e32, m1, ta, ma")
+    tf.code(f"la t1, {tag}_data1")
+    tf.code("vle32.v v16, (t1)")
+    # Store to VA1
+    tf.code("vse32.v v16, (s7)")
+    # Fence to ensure store is visible
+    tf.code("fence rw, rw")
+    # Load from VA2
+    tf.code("vle32.v v8, (s8)")
+    # Compare
+    tf.code(f"SET_TEST_NUM {cn_vse_vle}")
+    tf.code("la t1, result_buf")
+    tf.code("vse32.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_data1, {nbytes}")
+
+    tf.blank()
+    tf.comment("Test 2: scalar stores through VA1, vector load from VA2")
+    tf.code(f"la t1, {tag}_data2")
+    elem_bytes = sew // 8
+    for i in range(NUM_ELEMS):
+        tf.code(f"lw t2, {i * elem_bytes}(t1)")
+        tf.code(f"sw t2, {i * elem_bytes}(s7)")
+    tf.code("fence rw, rw")
+    tf.code("vle32.v v8, (s8)")
+    tf.code(f"SET_TEST_NUM {cn_sw_vle}")
+    tf.code("la t1, result_buf")
+    tf.code("vse32.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_data2, {nbytes}")
+
+    tf.blank()
+    tf.comment("Test 3: vector store through VA1, scalar loads from VA2")
+    tf.code(f"la t1, {tag}_data3")
+    tf.code("vle32.v v16, (t1)")
+    tf.code("vse32.v v16, (s7)")
+    tf.code("fence rw, rw")
+    tf.code(f"SET_TEST_NUM {cn_vse_lw}")
+    for i in range(NUM_ELEMS):
+        tf.code(f"lw t2, {i * elem_bytes}(s8)")
+        tf.code(f"la t1, {tag}_data3")
+        tf.code(f"lw t3, {i * elem_bytes}(t1)")
+        tf.code("FAIL_IF_NE t2, t3")
+
+    # Test 4: e8 width — vector store e8 through VA1, load from VA2
+    cn_e8 = tf.next_check("e8 alias: vse8 through VA1, vle8 from VA2 mismatch")
+    tf.blank()
+    tf.comment("Test 4: e8 aliased store/load")
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e8, m1, ta, ma")
+    tf.code(f"la t1, {tag}_data_e8")
+    tf.code("vle8.v v16, (t1)")
+    tf.code("vse8.v v16, (s7)")
+    tf.code("fence rw, rw")
+    tf.code("vle8.v v8, (s8)")
+    tf.code(f"SET_TEST_NUM {cn_e8}")
+    tf.code("la t1, result_buf")
+    tf.code("vse8.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_data_e8, 4")
+
+    # Test 5: e64 width
+    cn_e64 = tf.next_check("e64 alias: vse64 through VA1, vle64 from VA2 mismatch")
+    tf.blank()
+    tf.comment("Test 5: e64 aliased store/load")
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e64, m1, ta, ma")
+    tf.code(f"la t1, {tag}_data_e64")
+    tf.code("vle64.v v16, (t1)")
+    tf.code("vse64.v v16, (s7)")
+    tf.code("fence rw, rw")
+    tf.code("vle64.v v8, (s8)")
+    tf.code(f"SET_TEST_NUM {cn_e64}")
+    tf.code("la t1, result_buf")
+    tf.code("vse64.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_data_e64, 32")
+
+    # Test 6: strided store through VA1, unit load from VA2
+    cn_stride = tf.next_check(
+        "strided alias: vsse32 through VA1, vle32 from VA2 mismatch"
+    )
+    tf.blank()
+    tf.comment("Test 6: strided store through alias, unit load back")
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e32, m1, ta, ma")
+    tf.code(f"la t1, {tag}_data1")
+    tf.code("vle32.v v16, (t1)")
+    tf.code("li t2, 8")  # stride = 8 bytes (2 elements apart)
+    tf.code("vsse32.v v16, (s7), t2")
+    tf.code("fence rw, rw")
+    # Load strided from VA2
+    tf.code("vlse32.v v8, (s8), t2")
+    tf.code(f"SET_TEST_NUM {cn_stride}")
+    tf.code("la t1, result_buf")
+    tf.code("vse32.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_data1, {nbytes}")
+
+    # Test 7: repeated write-read cycle through alias (4 iterations)
+    cn_loop = tf.next_check("alias loop: iteration mismatch")
+    tf.blank()
+    tf.comment("Test 7: 4 write-read iterations through alias")
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e32, m1, ta, ma")
+    tf.code("li s9, 0")  # iteration counter
+    tf.raw(f"{tag}_loop:")
+    # Write iteration-dependent data: v16 = [iter*4+0, iter*4+1, iter*4+2, iter*4+3]
+    tf.code("slli t2, s9, 2")  # t2 = iter * 4
+    tf.code("vmv.v.x v16, t2")
+    tf.code("vid.v v20")
+    tf.code("vadd.vv v16, v16, v20")  # v16 = [iter*4+0, ..., iter*4+3]
+    tf.code("vse32.v v16, (s7)")
+    tf.code("fence rw, rw")
+    tf.code("vle32.v v8, (s8)")
+    # Compare v8 == v16
+    tf.code("vmseq.vv v0, v8, v16")
+    tf.code("vcpop.m t3, v0")
+    tf.code("li t4, 4")
+    tf.code(f"SET_TEST_NUM {cn_loop}")
+    tf.code(f"bne t3, t4, {tag}_fail")
+    tf.code("addi s9, s9, 1")
+    tf.code("li t4, 4")
+    tf.code(f"blt s9, t4, {tag}_loop")
+
+    tf.blank()
+    tf.comment("Cleanup")
+    tf.code("SYS_MUNMAP s7, 4096")
+    tf.code("SYS_MUNMAP s8, 4096")
+    tf.code(f"j {tag}_done")
+
+    tf.raw(f"{tag}_fail:")
+    tf.code("FAIL_TEST")
+
+    tf.raw(f"{tag}_done:")
+
+    # Data
+    data1 = [0x1111_1111, 0x2222_2222, 0x3333_3333, 0x4444_4444]
+    data2 = [0xAAAA_BBBB, 0xCCCC_DDDD, 0xEEEE_FFFF, 0x1234_5678]
+    data3 = [0xDEAD_BEEF, 0xCAFE_BABE, 0xFACE_FEED, 0xBAAD_F00D]
+    data_e8 = [0xAA, 0xBB, 0xCC, 0xDD]
+    data_e64 = [
+        0x1111_1111_2222_2222,
+        0x3333_3333_4444_4444,
+        0x5555_5555_6666_6666,
+        0x7777_7777_8888_8888,
+    ]
+    tf.data_align(32)
+    tf.data_label(f"{tag}_data1", format_data_line(data1, sew))
+    tf.data_label(f"{tag}_data2", format_data_line(data2, sew))
+    tf.data_label(f"{tag}_data3", format_data_line(data3, sew))
+    tf.data(".align 1")
+    tf.data_label(f"{tag}_data_e8", format_data_line(data_e8, 8))
+    tf.data(".align 3")
+    tf.data_label(f"{tag}_data_e64", format_data_line(data_e64, 64))
+    tf.data_label(f"{tag}_name", '    .asciz "rvvtest"')
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_store_forwarding(out: Path) -> str:
+    """Test store-to-load forwarding without fence.
+
+    RVWMO guarantees that a load from the same hart to the same address
+    as a preceding store sees the stored value, even without a fence.
+    Tests that vector store buffers correctly forward to subsequent
+    vector loads at the same address.
+
+    Tests:
+    1. vse32 then vle32 same address, no fence — must see stored data
+    2. vse32 then vle32 same address after vadd (intervening insn) — must still see it
+    3. Multiple back-to-back store-load pairs to same address
+    """
+    fpath = out / "store_forwarding.S"
+    tf = TestFile(
+        "Store-to-load forwarding",
+        "Tests that vector store-to-load forwarding works without "
+        "fence (same hart, same address). RVWMO guarantees visibility.")
+
+    sew = 32
+    nbytes = NUM_ELEMS * (sew // 8)
+    tag = "sfwd"
+
+    # Test 1: immediate store-load, no fence
+    data1 = [0xDEAD_0001, 0xDEAD_0002, 0xDEAD_0003, 0xDEAD_0004]
+    cn = tf.next_check("vse32→vle32 same address no fence: mismatch")
+    tf.blank()
+    tf.comment("Store then load, same address, no fence")
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e32, m1, ta, ma")
+    tf.code(f"la t1, {tag}_data1")
+    tf.code("vle32.v v16, (t1)")
+    tf.code(f"la s6, {tag}_buf1")
+    tf.code("vse32.v v16, (s6)")
+    # NO fence
+    tf.code("vle32.v v8, (s6)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("la t1, result_buf")
+    tf.code("vse32.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_data1, {nbytes}")
+
+    # Test 2: store, intervening arithmetic, then load
+    data2 = [0xCAFE_0001, 0xCAFE_0002, 0xCAFE_0003, 0xCAFE_0004]
+    cn = tf.next_check("vse32→vadd→vle32 same address: mismatch")
+    tf.blank()
+    tf.comment("Store, intervening vadd, then load same address")
+    tf.code(f"la t1, {tag}_data2")
+    tf.code("vle32.v v16, (t1)")
+    tf.code(f"la s6, {tag}_buf2")
+    tf.code("vse32.v v16, (s6)")
+    # Intervening arithmetic (doesn't touch memory)
+    tf.code("vadd.vv v20, v16, v16")
+    # Load from same address
+    tf.code("vle32.v v8, (s6)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("la t1, result_buf")
+    tf.code("vse32.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_data2, {nbytes}")
+
+    # Test 3: 4 back-to-back store-load pairs to same address
+    cn = tf.next_check("back-to-back store-load × 4: mismatch")
+    tf.blank()
+    tf.comment("4 back-to-back store-load pairs, same address")
+    tf.code(f"la s6, {tag}_buf3")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("li s7, 0")
+    tf.raw(f"{tag}_loop:")
+    tf.code("vmv.v.x v16, s7")  # fill with iteration counter
+    tf.code("vid.v v20")
+    tf.code("vadd.vv v16, v16, v20")
+    tf.code("vse32.v v16, (s6)")
+    tf.code("vle32.v v8, (s6)")
+    tf.code("vmseq.vv v0, v8, v16")
+    tf.code("vcpop.m t3, v0")
+    tf.code("li t4, 4")
+    tf.code(f"bne t3, t4, {tag}_fail")
+    tf.code("addi s7, s7, 1")
+    tf.code("li t4, 4")
+    tf.code(f"blt s7, t4, {tag}_loop")
+    tf.code(f"j {tag}_done")
+    tf.raw(f"{tag}_fail:")
+    tf.code("FAIL_TEST")
+    tf.raw(f"{tag}_done:")
+
+    tf.data(".align 4")
+    tf.data_label(f"{tag}_data1", format_data_line(data1, sew))
+    tf.data_label(f"{tag}_data2", format_data_line(data2, sew))
+    tf.data_label(f"{tag}_buf1", f"    .space {nbytes}")
+    tf.data_label(f"{tag}_buf2", f"    .space {nbytes}")
+    tf.data_label(f"{tag}_buf3", f"    .space {nbytes}")
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_mixed_width_forwarding(out: Path) -> str:
+    """Test store-load forwarding with different element widths.
+
+    Stores data at one SEW, loads it back at a different SEW from the
+    same address.  The store buffer must handle partial forwarding.
+
+    1. vse32 then vle8 — 4 e32 elements → 16 e8 bytes at same address
+    2. vse8 then vle32 — 16 e8 bytes → 4 e32 elements
+    3. vse64 then vle16 — 4 e64 elements → 16 e16 halfwords (first 32 bytes)
+    """
+    fpath = out / "mixed_width_fwd.S"
+    tf = TestFile(
+        "Mixed-width store-load forwarding",
+        "Tests vector store at one SEW followed by vector load at a "
+        "different SEW from the same address. Verifies store buffer "
+        "handles cross-width forwarding correctly.")
+
+    tag = "mwf"
+
+    # Test 1: vse32 → vle8
+    data32 = [0x04030201, 0x08070605, 0x0C0B0A09, 0x100F0E0D]
+    # When loaded as e8, we see the bytes in little-endian order
+    exp_e8 = []
+    for v in data32:
+        for b in range(4):
+            exp_e8.append((v >> (b * 8)) & 0xFF)
+
+    cn = tf.next_check("vse32 then vle8: byte mismatch")
+    tf.blank()
+    tf.comment("vse32 then vle8 from same address")
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e32, m1, ta, ma")
+    tf.code(f"la t1, {tag}_data32")
+    tf.code("vle32.v v16, (t1)")
+    tf.code(f"la s6, {tag}_buf1")
+    tf.code("vse32.v v16, (s6)")
+    # Load as e8 (16 bytes = 16 elements)
+    tf.code("li t0, 16")
+    tf.code("vsetvli t0, t0, e8, m1, ta, ma")
+    tf.code("vle8.v v8, (s6)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("la t1, result_buf")
+    tf.code("vse8.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_exp_e8, 16")
+
+    # Test 2: vse8 → vle32
+    data_bytes = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+                  0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00]
+    exp_e32 = []
+    for i in range(4):
+        val = 0
+        for b in range(4):
+            val |= data_bytes[i * 4 + b] << (b * 8)
+        exp_e32.append(val)
+
+    cn = tf.next_check("vse8 then vle32: word mismatch")
+    tf.blank()
+    tf.comment("vse8 then vle32 from same address")
+    tf.code("li t0, 16")
+    tf.code("vsetvli t0, t0, e8, m1, ta, ma")
+    tf.code(f"la t1, {tag}_data_bytes")
+    tf.code("vle8.v v16, (t1)")
+    tf.code(f"la s6, {tag}_buf2")
+    tf.code("vse8.v v16, (s6)")
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e32, m1, ta, ma")
+    tf.code("vle32.v v8, (s6)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("la t1, result_buf")
+    tf.code("vse32.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_exp_e32, 16")
+
+    # Test 3: vse64 → vle16
+    data64 = [0x0004000300020001, 0x0008000700060005,
+              0x000C000B000A0009, 0x0010000F000E000D]
+    exp_e16 = []
+    for v in data64:
+        for h in range(4):
+            exp_e16.append((v >> (h * 16)) & 0xFFFF)
+
+    cn = tf.next_check("vse64 then vle16: halfword mismatch")
+    tf.blank()
+    tf.comment("vse64 then vle16 from same address")
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e64, m1, ta, ma")
+    tf.code(f"la t1, {tag}_data64")
+    tf.code("vle64.v v16, (t1)")
+    tf.code(f"la s6, {tag}_buf3")
+    tf.code("vse64.v v16, (s6)")
+    tf.code("li t0, 16")
+    tf.code("vsetvli t0, t0, e16, m1, ta, ma")
+    tf.code("vle16.v v8, (s6)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("la t1, result_buf")
+    tf.code("vse16.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_exp_e16, 32")
+
+    tf.data(".align 4")
+    tf.data_label(f"{tag}_data32", format_data_line(data32, 32))
+    tf.data_label(f"{tag}_exp_e8", format_data_line(exp_e8, 8))
+    tf.data_label(f"{tag}_data_bytes", format_data_line(data_bytes, 8))
+    tf.data_label(f"{tag}_exp_e32", format_data_line(exp_e32, 32))
+    tf.data(".align 3")
+    tf.data_label(f"{tag}_data64", format_data_line(data64, 64))
+    tf.data(".align 1")
+    tf.data_label(f"{tag}_exp_e16", format_data_line(exp_e16, 16))
+    tf.data(".align 4")
+    tf.data_label(f"{tag}_buf1", "    .space 32")
+    tf.data_label(f"{tag}_buf2", "    .space 32")
+    tf.data_label(f"{tag}_buf3", "    .space 64")
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_self_referential(out: Path) -> str:
+    """Test self-referential store-load: same register stores then loads.
+
+    The same vector register group stores data to an address, then
+    immediately loads from that same address into the same register.
+    The result must be identical.  Catches bugs where the vector unit
+    uses a stale internal buffer or doesn't properly retire stores
+    before starting the next load to the same register.
+    """
+    fpath = out / "self_ref_store_load.S"
+    tf = TestFile(
+        "Self-referential store-load",
+        "Same vector register stores data, then loads it back from "
+        "the same address. Tests that store retirement is correct.")
+
+    sew = 32
+    nbytes = NUM_ELEMS * (sew // 8)
+    tag = "sref"
+
+    # Test 1: v8 stores, then v8 loads from same address
+    data1 = [0xAAAA_1111, 0xBBBB_2222, 0xCCCC_3333, 0xDDDD_4444]
+    cn = tf.next_check("self-ref v8 store-load: data mismatch")
+    tf.blank()
+    tf.comment("v8 stores to buf, then v8 loads from same buf")
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e32, m1, ta, ma")
+    tf.code(f"la t1, {tag}_data1")
+    tf.code("vle32.v v8, (t1)")
+    tf.code(f"la s6, {tag}_buf1")
+    tf.code("vse32.v v8, (s6)")
+    # Now load into THE SAME register from same address
+    tf.code("vle32.v v8, (s6)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("la t1, result_buf")
+    tf.code("vse32.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_data1, {nbytes}")
+
+    # Test 2: overwrite then self-load — v8 has data A, stores A,
+    # then v8 gets overwritten with B via arithmetic, then loads from buf
+    # → must get A back (the stored value), not B
+    data_a = [100, 200, 300, 400]
+    data_b_add = [999, 999, 999, 999]
+    cn = tf.next_check("self-ref overwrite-load: got stale data")
+    tf.blank()
+    tf.comment("v8=A, store A, v8=B (via vadd), load from buf → must get A")
+    tf.code(f"la t1, {tag}_data_a")
+    tf.code("vle32.v v8, (t1)")
+    tf.code(f"la s6, {tag}_buf2")
+    tf.code("vse32.v v8, (s6)")
+    # Overwrite v8 with different data
+    tf.code(f"la t1, {tag}_data_b")
+    tf.code("vle32.v v16, (t1)")
+    tf.code("vadd.vv v8, v16, v16")  # v8 = 2*B now
+    # Load back from buf — must get A, not 2*B
+    tf.code("vle32.v v8, (s6)")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("la t1, result_buf")
+    tf.code("vse32.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_data_a, {nbytes}")
+
+    # Test 3: store-load chain, 4 iterations with different data each time
+    cn = tf.next_check("self-ref chain × 4: mismatch")
+    tf.blank()
+    tf.comment("Self-ref chain: 4 iterations, new data each time")
+    tf.code(f"la s6, {tag}_buf3")
+    tf.code(f"SET_TEST_NUM {cn}")
+    tf.code("li s7, 0")
+    tf.raw(f"{tag}_loop:")
+    tf.code("vmv.v.x v8, s7")
+    tf.code("vid.v v16")
+    tf.code("vadd.vv v8, v8, v16")
+    tf.code("vse32.v v8, (s6)")
+    tf.code("vle32.v v8, (s6)")
+    # Verify v8 still has the same values (store-load round trip)
+    tf.code("vmv.v.x v16, s7")
+    tf.code("vid.v v20")
+    tf.code("vadd.vv v16, v16, v20")
+    tf.code("vmseq.vv v0, v8, v16")
+    tf.code("vcpop.m t3, v0")
+    tf.code("li t4, 4")
+    tf.code(f"bne t3, t4, {tag}_fail")
+    tf.code("addi s7, s7, 100")
+    tf.code("li t4, 400")
+    tf.code(f"blt s7, t4, {tag}_loop")
+    tf.code(f"j {tag}_done")
+    tf.raw(f"{tag}_fail:")
+    tf.code("FAIL_TEST")
+    tf.raw(f"{tag}_done:")
+
+    tf.data(".align 4")
+    tf.data_label(f"{tag}_data1", format_data_line(data1, sew))
+    tf.data_label(f"{tag}_data_a", format_data_line(data_a, sew))
+    tf.data_label(f"{tag}_data_b", format_data_line(data_b_add, sew))
+    tf.data_label(f"{tag}_buf1", f"    .space {nbytes}")
+    tf.data_label(f"{tag}_buf2", f"    .space {nbytes}")
+    tf.data_label(f"{tag}_buf3", f"    .space {nbytes}")
+
+    tf.write(fpath)
+    return str(fpath)
+
+
+def _gen_page_boundary(out: Path) -> str:
+    """Test vector load/store spanning a page boundary.
+
+    Allocates two contiguous pages via mmap, places the vector access
+    so that some elements are on page 1 and some on page 2.  This tests
+    that the TLB refill during a vector operation works correctly.
+
+    Places 4 e32 elements (16 bytes) starting at offset 4080 from
+    page 1 start, so elements 0-3 span bytes 4080-4095 (page 1) and
+    4096-4111 (page 2).  Element 0 starts at 4080, element 3 ends at
+    4095, element 4 would start on page 2... actually with 4 e32
+    elements that's only 16 bytes: 4080+16=4096, so element 3 ends
+    exactly at the page boundary.  Let's use offset 4084 so the last
+    element actually crosses: 4084+16=4100, spanning both pages.
+    """
+    fpath = out / "page_boundary.S"
+    tf = TestFile(
+        "Page boundary vector access",
+        "Tests vector load/store spanning a page boundary (elements "
+        "on page 1 and page 2). Verifies TLB refill mid-vector-op.")
+
+    sew = 32
+    nbytes = NUM_ELEMS * (sew // 8)
+    tag = "pgb"
+    offset = 4096 - 8  # 4088: last 8 bytes on page 1, first 8 on page 2
+
+    cn_mmap = tf.next_check("mmap 2 pages failed")
+    cn_store = tf.next_check("cross-page vector store failed")
+    cn_load = tf.next_check("cross-page vector load mismatch")
+    cn_scalar = tf.next_check("cross-page scalar verify mismatch")
+
+    data = [0xAAAA_0001, 0xBBBB_0002, 0xCCCC_0003, 0xDDDD_0004]
+
+    tf.blank()
+    tf.comment("Page boundary: vector access spanning two pages")
+
+    # Allocate 2 contiguous pages
+    tf.code(f"SET_TEST_NUM {cn_mmap}")
+    tf.code("SYS_MMAP 0, 8192, 3, 34, -1, 0")  # MAP_PRIVATE|MAP_ANON=34
+    tf.code(f"bltz a0, {tag}_fail")
+    tf.code("mv s6, a0")  # s6 = base of 2 pages
+
+    # Compute address that straddles the boundary
+    tf.code(f"li t0, {offset}")
+    tf.code("add s7, s6, t0")  # s7 = base + 4088 (straddles page)
+
+    # Store data at cross-page address
+    tf.code(f"SET_TEST_NUM {cn_store}")
+    tf.code("li t0, 4")
+    tf.code("vsetvli t0, t0, e32, m1, ta, ma")
+    tf.code(f"la t1, {tag}_data")
+    tf.code("vle32.v v16, (t1)")
+    tf.code("vse32.v v16, (s7)")
+
+    # Load back from same cross-page address
+    tf.code("vle32.v v8, (s7)")
+    tf.code(f"SET_TEST_NUM {cn_load}")
+    tf.code("la t1, result_buf")
+    tf.code("vse32.v v8, (t1)")
+    tf.code(f"CHECK_MEM result_buf, {tag}_data, {nbytes}")
+
+    # Scalar verify: check bytes on both sides of boundary
+    tf.code(f"SET_TEST_NUM {cn_scalar}")
+    # Element 0 at offset 4088 (page 1)
+    tf.code("lw t2, 0(s7)")
+    tf.code(f"la t1, {tag}_data")
+    tf.code("lw t3, 0(t1)")
+    tf.code("FAIL_IF_NE t2, t3")
+    # Element 2 at offset 4096 (page 2)
+    tf.code("lw t2, 8(s7)")
+    tf.code("lw t3, 8(t1)")
+    tf.code("FAIL_IF_NE t2, t3")
+
+    # Cleanup
+    tf.code("SYS_MUNMAP s6, 8192")
+    tf.code(f"j {tag}_done")
+    tf.raw(f"{tag}_fail:")
+    tf.code("FAIL_TEST")
+    tf.raw(f"{tag}_done:")
+
+    tf.data(".align 4")
+    tf.data_label(f"{tag}_data", format_data_line(data, sew))
 
     tf.write(fpath)
     return str(fpath)
