@@ -30,44 +30,47 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
 MANIFEST="tests/MANIFEST"
-if [ -f "$MANIFEST" ]; then
-    # Derive .bin paths from MANIFEST entries (tests/foo/bar.S -> tests/foo/bar.bin)
-    TESTS=$(sed 's/\.S$/.bin/' "$MANIFEST" | while read -r p; do
-        [ -f "$p" ] && echo "$p"
-    done)
-else
-    # Fallback: scan for .bin files (no MANIFEST present)
-    TESTS=$(find tests -name '*.bin' -type f | sort)
+if [ ! -f "$MANIFEST" ]; then
+    echo -e "${YELLOW}No MANIFEST found. Run 'python3 generate_tests.py' first.${NC}"
+    exit 1
 fi
-TOTAL=$(echo "$TESTS" | wc -l | tr -d ' ')
 
+# Parse MANIFEST: each line is "<path.S> <check_count>"
+# Build parallel arrays of test binaries and their check counts
+TESTS=()
+CHECKS=()
+while IFS=' ' read -r spath ncheck; do
+    [ -z "$spath" ] && continue
+    bin="${spath%.S}.bin"
+    [ -f "$bin" ] || continue
+    TESTS+=("$bin")
+    CHECKS+=("${ncheck:-0}")
+done < "$MANIFEST"
+
+TOTAL=${#TESTS[@]}
 if [ "$TOTAL" -eq 0 ]; then
     echo -e "${YELLOW}No test binaries found. Run 'make build' first.${NC}"
     exit 1
 fi
 
-echo -e "${CYAN}Running $TOTAL RVV tests...${NC}"
+# Sum total checks
+TOTAL_CHECKS=0
+for n in "${CHECKS[@]}"; do
+    TOTAL_CHECKS=$((TOTAL_CHECKS + n))
+done
+
+echo -e "${CYAN}Running $TOTAL tests ($TOTAL_CHECKS checks)...${NC}"
 echo "=========================================="
 
 PASSED=0
 FAILED=0
+PASSED_CHECKS=0
+FAILED_CHECKS=0
 ERRORS=""
 
-run_test() {
-    local test_bin="$1"
-    local test_name="${test_bin%.bin}"
-    test_name="${test_name#tests/}"
-
-    if [ "$MODE" = "local" ]; then
-        "./$test_bin" 2>/dev/null
-        return $?
-    elif [ "$MODE" = "ssh" ]; then
-        ssh -p "$SSH_PORT" "$SSH_HOST" "cd $PROJECT_DIR && ./$test_bin" 2>/dev/null
-        return $?
-    fi
-}
-
-for test_bin in $TESTS; do
+for i in "${!TESTS[@]}"; do
+    test_bin="${TESTS[$i]}"
+    ncheck="${CHECKS[$i]}"
     test_name="${test_bin%.bin}"
     test_name="${test_name#tests/}"
 
@@ -88,16 +91,36 @@ for test_bin in $TESTS; do
 
     if [ "$rc" -eq 0 ]; then
         PASSED=$((PASSED + 1))
-        printf "${GREEN}  PASS${NC}  %s\n" "$test_name"
+        PASSED_CHECKS=$((PASSED_CHECKS + ncheck))
+        printf "${GREEN}  PASS${NC}  %-45s  ${CYAN}(%d checks)${NC}\n" "$test_name" "$ncheck"
     else
         FAILED=$((FAILED + 1))
-        printf "${RED}  FAIL${NC}  %s  (exit code: %d)\n" "$test_name" "$rc"
+        # On failure, rc is the check number that failed (1-based),
+        # so checks before it passed and the rest are unknown.
+        # We count failed_check=1, passed_from_this=rc-1 (checks before the failing one).
+        if [ "$rc" -le "$ncheck" ] && [ "$rc" -gt 0 ]; then
+            passed_before=$((rc - 1))
+            PASSED_CHECKS=$((PASSED_CHECKS + passed_before))
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+            # Remaining checks after the failed one are not executed
+            skipped=$((ncheck - rc))
+            printf "${RED}  FAIL${NC}  %-45s  ${RED}(check %d/%d failed)${NC}\n" \
+                "$test_name" "$rc" "$ncheck"
+        else
+            # Unexpected exit code (signal, etc.) — all checks unknown
+            FAILED_CHECKS=$((FAILED_CHECKS + ncheck))
+            printf "${RED}  FAIL${NC}  %-45s  ${RED}(exit code: %d, %d checks)${NC}\n" \
+                "$test_name" "$rc" "$ncheck"
+        fi
         ERRORS="${ERRORS}\n  ${test_name} (exit code: ${rc})"
     fi
 done
 
 echo "=========================================="
-echo -e "Results: ${GREEN}${PASSED} passed${NC}, ${RED}${FAILED} failed${NC} / ${TOTAL} total"
+printf "Results: ${GREEN}%d passed${NC}, ${RED}%d failed${NC} / %d tests\n" \
+    "$PASSED" "$FAILED" "$TOTAL"
+printf "Checks:  ${GREEN}%d passed${NC}, ${RED}%d failed${NC} / %d total\n" \
+    "$PASSED_CHECKS" "$FAILED_CHECKS" "$TOTAL_CHECKS"
 
 if [ "$FAILED" -gt 0 ]; then
     echo -e "\n${RED}Failed tests:${NC}${ERRORS}"

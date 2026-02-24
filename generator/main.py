@@ -5,8 +5,16 @@ from __future__ import annotations
 Invokes every gen module's ``generate()`` function, collects the list of
 produced ``.S`` files, and writes a manifest (``tests/MANIFEST``) so the
 build system and test runner know exactly which tests exist.
+
+The manifest format is::
+
+    <path.S> <check_count>
+
+where *check_count* is the number of individual checks (exit codes 1..N)
+in the test binary, extracted from the ``" *   N = ..."`` header comments.
 """
 
+import re
 import shutil
 import sys
 import time
@@ -34,23 +42,23 @@ from .gen import (
 
 # Ordered so that foundational tests (config, load/store) come first.
 _GENERATORS: list[tuple[str, object]] = [
-    ("config",          config),
-    ("load_store",      load_store),
-    ("indexed_ls",      indexed_load_store),
-    ("segment_ls",      segment_load_store),
-    ("int_arith",       int_arith),
-    ("int_cmp",         int_cmp),
-    ("int_widening",    int_widening),
-    ("int_macc",        int_macc),
-    ("int_extension",   int_extension),
-    ("int_adc",         int_adc),
-    ("fixed_point",     fixed_point),
-    ("float_arith",     float_arith),
-    ("float_widening",  float_widening),
-    ("reduction",       reduction),
-    ("mask",            mask),
-    ("permutation",     permutation),
-    ("edge_cases",      edge_cases),
+    ("config", config),
+    ("load_store", load_store),
+    ("indexed_ls", indexed_load_store),
+    ("segment_ls", segment_load_store),
+    ("int_arith", int_arith),
+    ("int_cmp", int_cmp),
+    ("int_widening", int_widening),
+    ("int_macc", int_macc),
+    ("int_extension", int_extension),
+    ("int_adc", int_adc),
+    ("fixed_point", fixed_point),
+    ("float_arith", float_arith),
+    ("float_widening", float_widening),
+    ("reduction", reduction),
+    ("mask", mask),
+    ("permutation", permutation),
+    ("edge_cases", edge_cases),
 ]
 
 
@@ -118,14 +126,29 @@ def run(base_dir: Path, *, verbose: bool = False) -> list[str]:
         rel_files.append(rel)
     rel_files.sort()
 
+    # Count checks per test file from header comments (" *   N = ...").
+    check_re = re.compile(r"^ \*\s+(\d+) = ", re.MULTILINE)
+    total_checks = 0
+    manifest_lines: list[str] = []
+    for rel in rel_files:
+        src = base_dir / rel
+        if src.exists():
+            matches = check_re.findall(src.read_text())
+            n = int(matches[-1]) if matches else 0
+        else:
+            n = 0
+        total_checks += n
+        manifest_lines.append(f"{rel} {n}")
+
     # Write manifest.
     manifest = base_dir / "tests" / "MANIFEST"
     manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text("\n".join(rel_files) + "\n")
+    manifest.write_text("\n".join(manifest_lines) + "\n")
 
     if verbose:
         print(
-            f"\nTotal: {len(rel_files)} test files generated in {total_elapsed:.2f}s",
+            f"\nTotal: {len(rel_files)} test files, {total_checks} checks"
+            f" generated in {total_elapsed:.2f}s",
             file=sys.stderr,
         )
         print(f"Manifest written to {manifest}", file=sys.stderr)

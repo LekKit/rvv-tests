@@ -74,7 +74,8 @@ class TestFile:
     # Write to disk
     # ------------------------------------------------------------------
 
-    def write(self, filepath: str | Path) -> None:
+    def write(self, filepath: str | Path) -> int:
+        """Write the test file and return the total check count."""
         p = Path(filepath)
         p.parent.mkdir(parents=True, exist_ok=True)
 
@@ -108,3 +109,4 @@ class TestFile:
         lines.append("")
 
         p.write_text("\n".join(lines) + "\n")
+        return self._check_num
